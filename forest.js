@@ -24,7 +24,8 @@ const MGR = {named: "In a manager's list", cfl: "Crown forest licence", none: "N
 const SIZES = [["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const get = f => fetch("data/" + f).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
+const DATA_V = 13;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG] = await Promise.all([get("blocks.json"), get("managers.json")]);
 const R = B.regions, D = B.districts, blocks = B.blocks, HG = B.harvest;
