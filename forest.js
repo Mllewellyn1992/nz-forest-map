@@ -1,124 +1,107 @@
 // forest.js - the NZ forest map (ForestMap project, built 2026-11-23 for Pinetech Pacific). Leaflet on canvas with the
 // AquilaLens background (base.js). Data in data/: blocks.json (forest blocks 50 ha+ with outlines), oio.json (overseas
-// forestry buys placed by address), managers.json (FSC certificates + firms' named forests). Filters live in the
-// address bar, so a link opens the same view.
+// forestry buys placed by address), managers.json (one row per forest firm: own list + FSC + owner check).
+// 2026-11-23 Mike: "less words ... make the filters simple" - dropdowns instead of chip rows, four age groups, one line
+// per firm. Filters live in the address bar, so a link opens the same view.
 (async function () {
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c]);
 const fmt = n => Math.round(n).toLocaleString("en-NZ");
 const VIZ = window.OL_VIZ, dark = VIZ.dark;
 
-// ------------------------------------------------------------------ colours
-const C = dark ? {
-  kind: ["#4cae6c", "#d9ac3a"],
-  age: ["#3f9a5a", "#6fae3e", "#a6bd3a", "#d1c64a", "#e8d77a", "#f3e9b3", "#d07a5c"],
-  land: {cfl: "#a487f0", fr: "#5d9cf0", mao: "#f08a4b", con: "#3fb8bf", none: "#6d7177"},
-  oio: "#ef6a6a", sel: "#ffffff",
-} : {
-  kind: ["#2d7a46", "#c8901e"],
-  age: ["#0b3d24", "#2e6b2f", "#5f8f2a", "#9bab2e", "#cdbf4a", "#ecdf8f", "#b0563c"],
-  land: {cfl: "#7a4fd6", fr: "#2f6fde", mao: "#d9772b", con: "#1f8a8a", none: "#a9aeb5"},
-  oio: "#c9423a", sel: "#111418",
-};
-const AGE_NAME = ["Before 1996", "1996-2001", "2001-2008", "2008-2012", "2012-2018", "2018-2023", "Harvested, not replanted"];
-const LAND_NAME = {cfl: "Crown forest licence", fr: "Forestry right on a title", mao: "Mostly Māori land", con: "Mostly conservation land",
-  none: "None of these"};
-const KIND_NAME = ["Plantation", "Mānuka / kānuka"];
-const SIZES = [["50-200 ha", 50, 200], ["200-1,000", 200, 1000], ["1,000-5,000", 1000, 5000], ["5,000+", 5000, 1e9]];
+// ------------------------------------------------------------------ colours and names
+const C = dark ? {kind: ["#4cae6c", "#d9ac3a"], age: ["#3f9a5a", "#a6bd3a", "#e8d77a", "#d07a5c"],
+  land: {cfl: "#a487f0", fr: "#5d9cf0", mao: "#f08a4b", con: "#3fb8bf", none: "#6d7177"}, oio: "#ef6a6a", sel: "#ffffff"}
+  : {kind: ["#2d7a46", "#c8901e"], age: ["#0b3d24", "#7f9a2a", "#e0cf6a", "#b0563c"],
+  land: {cfl: "#7a4fd6", fr: "#2f6fde", mao: "#d9772b", con: "#1f8a8a", none: "#a9aeb5"}, oio: "#c9423a", sel: "#111418"};
+// the 7 land-cover periods fold into 4 ages (as at 2026): before 2001 = 25+ years, 2001-2012 = 14-25, 2012-2023 = under 14
+const AGE = ["25+ years", "14-25 years", "Under 14 years", "Felled, not replanted"];
+const AGE_OF_BAND = [0, 0, 1, 1, 2, 2, 3];
+const KIND = ["Plantation", "Mānuka / kānuka"];
+const LAND = {cfl: "Crown forest licence", fr: "Forestry right", mao: "Mostly Māori land", con: "Mostly conservation", none: "Other"};
+const SIZES = [["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
 const get = f => fetch("data/" + f).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, OIO, MG] = await Promise.all([get("blocks.json"), get("oio.json"), get("managers.json")]);
-const R = B.regions, D = B.districts;
-const blocks = B.blocks;
-const landOf = b => b.cfl ? "cfl" : b.fr ? "fr" : b.mao >= b.ha * .25 ? "mao" : b.con >= b.ha * .25 ? "con" : "none";
+const R = B.regions, D = B.districts, blocks = B.blocks;
 blocks.forEach(b => {
-  b.land = landOf(b);
+  b.land = b.cfl ? "cfl" : b.fr ? "fr" : b.mao >= b.ha * .25 ? "mao" : b.con >= b.ha * .25 ? "con" : "none";
+  b.ages = [0, 0, 0, 0]; b.bands.forEach((v, i) => { b.ages[AGE_OF_BAND[i]] += v; });
+  b.age = b.k === 0 && b.ages.some(v => v) ? b.ages.indexOf(Math.max(...b.ages)) : -1;
   b.oio = b.oio.replace(/(^|; )\? \(/g, "$1buyer not named (");
-  b.h25 = b.k === 0 ? b.bands[0] + b.bands[1] : 0;     // harvest age: planted before 2001
-  b.text = [R[b.r], D[b.d], b.tt, b.oio, KIND_NAME[b.k]].join(" ").toLowerCase();
+  b.text = [R[b.r], D[b.d], b.tt, b.oio, KIND[b.k]].join(" ").toLowerCase();
   b.ll = L.latLng(b.c[0], b.c[1]);
 });
 $("a-pl").textContent = fmt(blocks.filter(b => b.k === 0).reduce((s, b) => s + b.ha, 0));
-// each overseas buy takes the region / district of the nearest block (for the region filter)
-OIO.forEach(o => { const ll = L.latLng(o.c[0], o.c[1]); let best = null, bd = 3e4;
-  blocks.forEach(b => { const d = ll.distanceTo(b.ll); if (d < bd) { bd = d; best = b; } });
-  o.r = best ? best.r : -1; o.d = best ? best.d : -1; o.ll = ll; });
+// each overseas buy takes the region / district of the nearest block (so the region filter applies to it)
+OIO.forEach(o => { o.ll = L.latLng(o.c[0], o.c[1]); let best = null, bd = 3e4;
+  blocks.forEach(b => { const d = o.ll.distanceTo(b.ll); if (d < bd) { bd = d; best = b; } });
+  o.r = best ? best.r : -1; o.d = best ? best.d : -1; });
 const unring = a => { const out = []; let x = 0, y = 0; for (let i = 0; i < a.length; i += 2) { x += a[i]; y += a[i + 1]; out.push([y / 1e4, x / 1e4]); } return out; };
+// firms: biggest first by FSC area, else their stated estate total, else what their list adds up to
+const firstNum = t => { const m = String(t).match(/\d[\d,]*(\.\d+)?/); return m ? +m[0].replace(/,/g, "") : 0; };
+const isTot = x => /^(estate|company) total/i.test(x.n);
+MG.firms.forEach(F => {
+  const tot = F.rows.find(isTot);
+  F.ha = F.fsc || (tot ? firstNum(tot.hat) : F.rows.reduce((s, x) => s + (x.ha || 0), 0));
+  F.rows = F.rows.filter(x => !isTot(x) || !/^(estate|company) total$/i.test(x.n));
+  F.text = [F.name, F.own, ...F.rows.map(x => x.n + " " + x.where + " " + x.own)].join(" ").toLowerCase();
+  F.year = (String(F.asof || "").match(/\d{4}/) || [""])[0];
+});
+MG.firms.sort((a, b) => b.ha - a.ha);
 
 // ------------------------------------------------------------------ map
-const map = L.map("map", {preferCanvas: true, zoomControl: true, attributionControl: true});
+const map = L.map("map", {preferCanvas: true});
 olBaseMap(map, "Forests: LCDB v6 Manaaki Whenua (CC BY 4.0) · LINZ (CC BY 4.0)", {full: false});
-map.setView([-41.2, 172.8], 5, {animate: false});   // a view first: fitting to a box not yet sized leaves the map unset
+map.setView([-41.2, 172.8], 5, {animate: false});   // a view first: fitting a box not yet sized leaves the map unset
 olFitNZ(map);
 const rnd = L.canvas({padding: .5, tolerance: 4});
-const forestLayer = L.layerGroup().addTo(map);
-const oioLayer = L.layerGroup().addTo(map);
+const forestLayer = L.layerGroup().addTo(map), oioLayer = L.layerGroup().addTo(map);
 
 // ------------------------------------------------------------------ state (kept in the address bar)
-const S = {q: "", kind: new Set(), region: -1, district: -1, size: new Set(), age: new Set(), land: new Set(), colour: "kind", tab: "blocks",
-  pin: null, km: 25};
+const S = {};
+const BLANK = {q: "", kind: "", age: "", region: -1, district: -1, size: "", land: "", colour: "age", tab: "blocks", pin: null, km: 25};
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
-  const set = k => new Set((p.get(k) || "").split(",").filter(Boolean));
-  S.q = p.get("q") || ""; S.kind = set("kind"); S.size = set("size"); S.age = set("age"); S.land = set("land");
-  S.region = p.has("region") ? +p.get("region") : -1; S.district = p.has("district") ? +p.get("district") : -1;
-  S.colour = p.get("colour") || "kind"; S.tab = p.get("tab") || "blocks";
-  S.km = +(p.get("km") || 25);
+  Object.assign(S, BLANK);
+  for (const k of ["q", "kind", "age", "size", "land", "colour", "tab"]) if (p.has(k)) S[k] = p.get(k);
+  for (const k of ["region", "district", "km"]) if (p.has(k)) S[k] = +p.get(k);
   S.pin = p.get("pin") ? p.get("pin").split(",").map(Number) : null;
 }
 function writeHash() {
   const p = new URLSearchParams();
-  if (S.q) p.set("q", S.q);
-  for (const k of ["kind", "size", "age", "land"]) if (S[k].size) p.set(k, [...S[k]].join(","));
-  if (S.region >= 0) p.set("region", S.region);
-  if (S.district >= 0) p.set("district", S.district);
-  if (S.colour !== "kind") p.set("colour", S.colour);
-  if (S.tab !== "blocks") p.set("tab", S.tab);
+  for (const k of ["q", "kind", "age", "size", "land", "colour", "tab", "region", "district"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
   if (S.pin) { p.set("pin", S.pin.map(v => v.toFixed(4)).join(",")); p.set("km", S.km); }
   history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
 }
 readHash();
 
-// ------------------------------------------------------------------ filter controls
-function chips(boxId, items, key, multi = true) {
-  const box = $(boxId);
-  items.forEach(([val, label, sw]) => {
-    const b = document.createElement("button");
-    b.type = "button"; b.className = "chip"; b.dataset.v = val;
-    b.innerHTML = (sw ? `<span class="sw" style="background:${sw}"></span>` : "") + esc(label);
-    b.addEventListener("click", () => {
-      if (multi) { S[key].has(val) ? S[key].delete(val) : S[key].add(val); }
-      else S[key] = val;
-      update();
-    });
-    box.appendChild(b);
-  });
-}
-chips("f-kind", [["0", "Plantation", C.kind[0]], ["1", "Mānuka / kānuka", C.kind[1]]], "kind");
-chips("f-size", SIZES.map((s, i) => [String(i), s[0]]), "size");
-chips("f-age", [...AGE_NAME.map((n, i) => [String(i), n, C.age[i]]), ["h", "Mostly harvest age (25+ yrs)"]], "age");
-chips("f-land", [["cfl", "Crown forest licence", C.land.cfl], ["fr", "Forestry right", C.land.fr], ["mao", "Mostly Māori land", C.land.mao],
-  ["con", "Mostly conservation", C.land.con], ["oio", "Overseas buy in or near", C.oio]], "land");
-chips("f-colour", [["kind", "Type"], ["age", "Planting period"], ["land", "Land"]], "colour", false);
-const regSel = $("f-region"), disSel = $("f-district");
-regSel.innerHTML = `<option value="-1">All regions</option>` + R.map((r, i) => `<option value="${i}">${esc(r)}</option>`).join("");
+// ------------------------------------------------------------------ the dropdowns
+const opts = (first, list) => `<option value="">${first}</option>` + list.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
+$("f-kind").innerHTML = opts("All", KIND.map((t, i) => [i, t]));
+$("f-age").innerHTML = opts("Any age", AGE.map((t, i) => [i, t]));
+$("f-region").innerHTML = opts("All NZ", R.map((t, i) => [i, t]));
+$("f-size").innerHTML = opts("Any size", SIZES.map((s, i) => [i, s[0]]));
+$("f-land").innerHTML = opts("Any land", [["cfl", "Crown forest licence"], ["fr", "Forestry right on a title"], ["mao", "Mostly Māori land"],
+  ["con", "Mostly conservation land"], ["oio", "Overseas buy in or near"]]);
+$("f-colour").innerHTML = [["age", "Age"], ["kind", "Type"], ["land", "Land"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("");
 function fillDistricts() {
-  const used = new Set(blocks.filter(b => S.region < 0 || b.r === S.region).map(b => b.d));
-  disSel.innerHTML = `<option value="-1">All districts</option>` +
-    D.map((d, i) => used.has(i) ? `<option value="${i}">${esc(d)}</option>` : "").join("");
-  disSel.value = String(S.district);
-  if (disSel.value !== String(S.district)) { S.district = -1; disSel.value = "-1"; }
+  $("disbox").hidden = S.region < 0;
+  const used = new Set(blocks.filter(b => b.r === S.region).map(b => b.d));
+  $("f-district").innerHTML = opts("All districts", D.map((t, i) => [i, t]).filter(([i]) => used.has(i)));
+  if (!used.has(S.district)) S.district = -1;
 }
-regSel.addEventListener("change", () => { S.region = +regSel.value; S.district = -1; fillDistricts(); update(true); });
-disSel.addEventListener("change", () => { S.district = +disSel.value; update(true); });
+const bind = (id, key, num) => $(id).addEventListener("change", e => { const v = e.target.value;
+  S[key] = num ? (v === "" ? -1 : +v) : v; if (key === "region") { S.district = -1; fillDistricts(); } update(key === "region" || key === "district"); });
+bind("f-kind", "kind"); bind("f-age", "age"); bind("f-size", "size"); bind("f-land", "land");
+bind("f-region", "region", true); bind("f-district", "district", true);
+$("f-colour").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { S.colour = b.dataset.v; update(); } });
 let qt;
 $("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { S.q = $("q").value.trim(); update(); }, 200); });
-$("reset").addEventListener("click", () => {
-  Object.assign(S, {q: "", kind: new Set(), region: -1, district: -1, size: new Set(), age: new Set(), land: new Set(), pin: null});
-  $("q").value = ""; regSel.value = "-1"; fillDistricts(); setPin(null); update(); olFitNZ(map);
-});
+$("reset").addEventListener("click", () => { const tab = S.tab, colour = S.colour; Object.assign(S, BLANK, {tab, colour}); $("q").value = "";
+  fillDistricts(); setPin(null); update(); olFitNZ(map); });
 $("aboutbtn").addEventListener("click", () => $("about").classList.add("on"));
 $("aboutclose").addEventListener("click", () => $("about").classList.remove("on"));
 $("about").addEventListener("click", e => { if (e.target.id === "about") $("about").classList.remove("on"); });
@@ -126,28 +109,24 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") $("about").c
 document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => { S.tab = b.dataset.tab; update(); }));
 
 // ------------------------------------------------------------------ which blocks pass
-const near = (ll, km) => S.pin && map.distance(L.latLng(S.pin[0], S.pin[1]), ll) <= km * 1000;
+const near = ll => S.pin && map.distance(L.latLng(S.pin[0], S.pin[1]), ll) <= S.km * 1000;
+const words = () => S.q.toLowerCase().split(/\s+/).filter(Boolean);
 function passes(b) {
-  if (S.kind.size && !S.kind.has(String(b.k))) return false;
+  if (S.kind !== "" && b.k !== +S.kind) return false;
   if (S.region >= 0 && b.r !== S.region) return false;
   if (S.district >= 0 && b.d !== S.district) return false;
-  if (S.size.size && ![...S.size].some(i => b.ha >= SIZES[i][1] && b.ha < SIZES[i][2])) return false;
-  if (S.age.size) {
-    const want = [...S.age];
-    const ok = want.some(a => a === "h" ? b.k === 0 && b.h25 >= b.ha * .5 : b.k === 0 && b.main === +a);
-    if (!ok) return false;
-  }
-  if (S.land.size && ![...S.land].some(l => l === "oio" ? !!b.oio : b.land === l || (l === "fr" && b.fr) || (l === "cfl" && b.cfl)
-      || (l === "mao" && b.mao >= b.ha * .25) || (l === "con" && b.con >= b.ha * .25))) return false;
-  if (S.pin && !near(b.ll, S.km)) return false;
-  if (S.q) { const words = S.q.toLowerCase().split(/\s+/); if (!words.every(w => b.text.includes(w))) return false; }
+  if (S.size !== "" && !(b.ha >= SIZES[S.size][1] && b.ha < SIZES[S.size][2])) return false;
+  if (S.age !== "" && b.age !== +S.age) return false;
+  if (S.land === "oio" ? !b.oio : S.land && !(b.land === S.land || (S.land === "fr" && b.fr) || (S.land === "cfl" && b.cfl)
+      || (S.land === "mao" && b.mao >= b.ha * .25) || (S.land === "con" && b.con >= b.ha * .25))) return false;
+  if (S.pin && !near(b.ll)) return false;
+  const w = words(); if (w.length && !w.every(x => b.text.includes(x))) return false;
   return true;
 }
-const colourOf = b => S.colour === "age" ? (b.k === 0 && b.main >= 0 ? C.age[b.main] : VIZ.none)
-  : S.colour === "land" ? C.land[b.land] : C.kind[b.k];
+const colourOf = b => S.colour === "age" ? (b.age >= 0 ? C.age[b.age] : VIZ.none) : S.colour === "land" ? C.land[b.land] : C.kind[b.k];
 
 // ------------------------------------------------------------------ drawing
-let picked = null;
+let picked = null, shown = [];
 function styleOf(b) {
   const c = colourOf(b), sel = picked === b;
   return {renderer: rnd, color: sel ? C.sel : c, weight: sel ? 2.5 : .6, opacity: sel ? 1 : .9, fillColor: c, fillOpacity: sel ? .85 : .7};
@@ -155,14 +134,28 @@ function styleOf(b) {
 function shapeOf(b) {
   if (!b.layer) {
     b.layer = L.polygon(b.g.map(poly => poly.map(unring)), styleOf(b));
-    b.layer.bindTooltip(() => `${esc(KIND_NAME[b.k])} · ${fmt(b.ha)} ha<br>${esc(D[b.d] || "")}`, {sticky: true, direction: "top", opacity: .95});
-    b.layer.on("click", e => { L.DomEvent.stopPropagation(e);
-      if (pinning) { map.fire("click", {latlng: e.latlng}); return; }
-      pick(b, false); });
+    b.layer.bindTooltip(() => `${fmt(b.ha)} ha · ${esc(D[b.d] || "")}`, {sticky: true, direction: "top", opacity: .95});
+    b.layer.on("click", e => { L.DomEvent.stopPropagation(e); if (pinning) { map.fire("click", {latlng: e.latlng}); return; } pick(b, false); });
   }
   return b.layer;
 }
-let shown = [];
+function oioShown() {
+  const w = words();
+  return OIO.filter(o => (S.region < 0 || o.r === S.region) && (S.district < 0 || o.d === S.district) && (!S.pin || near(o.ll)) &&
+    (!w.length || w.every(x => [o.b, o.s, o.w].join(" ").toLowerCase().includes(x))));
+}
+const dotR = () => map.getZoom() < 8 ? 3.5 : 5;
+function oioMarker(o) {
+  if (!o.mk) {
+    o.mk = L.circleMarker(o.c, {renderer: rnd, radius: dotR(), color: dark ? "#1c1b18" : "#ffffff", weight: 1.5, fillColor: C.oio, fillOpacity: 1});
+    o.mk.bindTooltip(`${esc(o.b || "Buyer not named")} · ${o.m.slice(0, 4)}`, {direction: "top"});
+    o.mk.bindPopup(() => `<div class="card"><h3>${esc(o.b || "Buyer not named")}</h3>
+      <div class="s">Overseas Investment Office consent, ${esc(o.m)}. A past buy, not today's owner.</div>
+      <table>${o.ha ? `<tr><td>Area in the decision</td><td>${fmt(o.ha)} ha</td></tr>` : ""}${o.s ? `<tr><td>Bought from</td><td>${esc(o.s)}</td></tr>` : ""}</table>
+      <div class="links"><a href="${esc(o.u)}" target="_blank" rel="noopener">Read the decision</a></div></div>`, {maxWidth: 320});
+  }
+  return o.mk;
+}
 function draw() {
   forestLayer.clearLayers();
   shown = blocks.filter(passes);
@@ -170,170 +163,119 @@ function draw() {
   oioLayer.clearLayers();
   oioShown().forEach(o => oioLayer.addLayer(oioMarker(o)));
 }
-// overseas buys: shown with the region / district / pin / search filters (not the forest-only ones)
-const regionName = () => S.region >= 0 ? R[S.region] : null;
-function oioShown() {
-  const q = S.q.toLowerCase().split(/\s+/).filter(Boolean);
-  return OIO.filter(o => {
-    if (S.pin && !near(o.ll, S.km)) return false;
-    if (S.region >= 0 && o.r !== S.region) return false;
-    if (S.district >= 0 && o.d !== S.district) return false;
-    if (q.length) { const t = [o.b, o.s, o.w].join(" ").toLowerCase(); if (!q.every(w => t.includes(w))) return false; }
-    return true;
-  });
-}
-function oioMarker(o) {
-  if (!o.mk) {
-    o.mk = L.circleMarker(o.c, {renderer: rnd, radius: map.getZoom() < 8 ? 3.5 : 5, color: dark ? "#1c1b18" : "#ffffff", weight: 1.5, fillColor: C.oio, fillOpacity: 1});
-    o.mk.bindTooltip(`${esc(o.b)}${o.ha ? " · " + fmt(o.ha) + " ha" : ""} · ${esc(o.m)}`, {direction: "top"});
-    o.mk.bindPopup(() => oioCard(o), {maxWidth: 330});
-  }
-  return o.mk;
-}
-function oioCard(o) {
-  return `<div class="card"><h3>${esc(o.b || "Buyer not named")}</h3><div class="s">Overseas Investment Office consent · ${esc(o.m)}</div>
-    <table><tr><td>Hectares in decision</td><td>${o.ha ? fmt(o.ha) : "-"}</td></tr>
-    ${o.s ? `<tr><td>Seller</td><td>${esc(o.s)}</td></tr>` : ""}</table>
-    <div class="s" style="margin-top:6px">${esc(o.w)}${o.w.length >= 300 ? "…" : ""}</div>
-    <div class="s">Dot = the address in the decision (${esc(o.how)}), not the whole forest bought.</div>
-    <div class="links"><a href="${esc(o.u)}" target="_blank" rel="noopener">Read the decision</a></div></div>`;
-}
+map.on("zoomend", () => OIO.forEach(o => o.mk && o.mk.setRadius(dotR())));
 
 // ------------------------------------------------------------------ the block card
 function blockCard(b) {
-  const tot = b.bands.reduce((s, v) => s + v, 0);
-  const bar = b.k === 0 && tot ? `<div class="bar">${b.bands.map((v, i) => v ? `<span title="${AGE_NAME[i]}: ${fmt(v)} ha" style="width:${v / tot * 100}%;background:${C.age[i]}"></span>` : "").join("")}</div>
-    <div class="bk">${b.bands.map((v, i) => v ? `<span><i style="background:${C.age[i]}"></i>${AGE_NAME[i]} ${fmt(v)}</span>` : "").join("")}</div>` : "";
-  const gm = `https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3`;
-  const rows = [
-    ["Forest area", fmt(b.ha) + " ha"],
-    b.k === 0 ? ["Harvest age (planted before 2001)", fmt(b.h25) + " ha"] : null,
-    ["Land titles", fmt(b.t)],
-    b.fr ? ["Titles with a forestry right", fmt(b.fr)] : null,
-    b.cfl ? ["Titles under a Crown forest licence", fmt(b.cfl)] : null,
-    b.mao ? ["Māori land", fmt(b.mao) + " ha"] : null,
-    b.con ? ["Conservation / reserve land", fmt(b.con) + " ha"] : null,
-  ].filter(Boolean);
-  return `<div class="card"><h3>${esc(KIND_NAME[b.k])} block · ${fmt(b.ha)} ha</h3>
-    <div class="s">${esc(D[b.d] || "")}${b.r >= 0 ? ", " + esc(R[b.r]) : ""} · block ${b.id}</div>
+  const tot = b.ages.reduce((s, v) => s + v, 0);
+  const ageRows = b.k === 0 && tot ? `<div class="bar">${b.ages.map((v, i) => v ? `<span style="width:${v / tot * 100}%;background:${C.age[i]}"></span>` : "").join("")}</div>
+    <table>${b.ages.map((v, i) => v ? `<tr><td><i style="background:${C.age[i]}"></i>${AGE[i]}</td><td>${fmt(v)} ha</td></tr>` : "").join("")}</table>` : "";
+  const extra = [b.fr ? `${b.fr} with a forestry right` : "", b.cfl ? `${b.cfl} Crown forest licence` : ""].filter(Boolean).join(", ");
+  const rows = [["Land titles", fmt(b.t) + (extra ? ` <span class="s">(${extra})</span>` : "")],
+    b.mao ? ["Māori land", fmt(b.mao) + " ha"] : null, b.con ? ["Conservation land", fmt(b.con) + " ha"] : null].filter(Boolean);
+  return `<div class="card"><h3>${esc(KIND[b.k])} · ${fmt(b.ha)} ha</h3>
+    <div class="s">${esc(D[b.d] || "")}${b.r >= 0 ? ", " + esc(R[b.r]) : ""}</div>
+    ${ageRows}
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</table>
-    ${bar ? `<div style="margin-top:6px;font-weight:600">When planted</div>${bar}` : ""}
-    ${b.tt ? `<div class="s" style="margin-top:6px">Largest titles: ${esc(b.tt)}</div>` : ""}
-    ${b.oio ? `<div class="s" style="margin-top:4px"><b style="color:${C.oio}">Overseas buy in or near:</b> ${esc(b.oio)}</div>` : ""}
-    <div class="s" style="margin-top:4px">Owner: not shown (LINZ releases owner names only under a licence).</div>
-    <div class="links"><a href="${gm}" target="_blank" rel="noopener">Satellite in Google Maps</a>
-      <a href="#" data-managers="${b.r}">Who manages in ${esc(R[b.r] || "this region")}</a></div></div>`;
+    ${b.oio ? `<div class="s" style="margin-top:6px"><b style="color:${C.oio}">Overseas buy nearby:</b> ${esc(b.oio)}</div>` : ""}
+    <div class="links"><a href="https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3" target="_blank" rel="noopener">Satellite view</a>
+      ${b.r >= 0 ? `<a href="#" data-managers="${b.r}">Managers in ${esc(R[b.r])}</a>` : ""}</div></div>`;
 }
 function pick(b, fly) {
   const was = picked; picked = b;
   if (was && was.layer) was.layer.setStyle(styleOf(was));
   shapeOf(b).setStyle(styleOf(b)); b.layer.bringToFront();
   if (fly) map.fitBounds(b.layer.getBounds(), {maxZoom: 13, padding: [40, 40], animate: false});
-  const pop = L.popup({maxWidth: 360, autoPanPadding: [20, 20]}).setLatLng(b.ll).setContent(blockCard(b));
+  const pop = L.popup({maxWidth: 340, autoPanPadding: [20, 20]}).setLatLng(b.ll).setContent(blockCard(b));
   pop.on("remove", () => { if (picked === b) { picked = null; if (b.layer) b.layer.setStyle(styleOf(b)); } });
   pop.openOn(map);
 }
 map.getContainer().addEventListener("click", e => {
   const a = e.target.closest("[data-managers]"); if (!a) return;
-  e.preventDefault(); S.region = +a.dataset.managers; S.district = -1; S.tab = "managers"; regSel.value = String(S.region); fillDistricts(); update();
+  e.preventDefault(); S.region = +a.dataset.managers; S.district = -1; S.tab = "managers"; fillDistricts(); update();
 });
 
-// ------------------------------------------------------------------ drop a pin (km ring, like AquilaLens's pin tool)
+// ------------------------------------------------------------------ drop a pin (km ring, as AquilaLens's pin tool)
 let pinMk = null, pinRing = null, pinning = false;
 function setPin(ll) {
   if (pinMk) { map.removeLayer(pinMk); map.removeLayer(pinRing); pinMk = pinRing = null; }
   S.pin = ll ? [ll.lat, ll.lng] : null;
   if (S.pin) {
     pinMk = L.marker(S.pin, {draggable: true, title: "Drag to move"}).addTo(map);
-    pinRing = L.circle(S.pin, {radius: S.km * 1000, color: VIZ.tool.ring, weight: 2, fill: true, fillColor: VIZ.tool.ring, fillOpacity: .04,
-      interactive: false}).addTo(map);
+    pinRing = L.circle(S.pin, {radius: S.km * 1000, color: VIZ.tool.ring, weight: 2, fillColor: VIZ.tool.ring, fillOpacity: .04, interactive: false}).addTo(map);
     pinMk.on("dragend", () => { setPin(pinMk.getLatLng()); update(); });
   }
-  $("pinclear").style.display = S.pin ? "" : "none";
+  $("pinclear").hidden = !S.pin;
 }
 const PinCtl = L.Control.extend({onAdd() {
   const d = L.DomUtil.create("div", "pinbox");
-  d.innerHTML = `<button id="pinbtn" type="button" title="Click, then click the map: shows only forests within the distance">Drop a pin</button>
+  d.innerHTML = `<button id="pinbtn" type="button" title="Click, then click the map: only forests within the distance are counted">Drop a pin</button>
     <select id="pinkm" aria-label="Distance">${[10, 25, 50, 100, 150].map(k => `<option value="${k}">${k} km</option>`).join("")}</select>
-    <button id="pinclear" type="button" style="display:none" title="Remove the pin">✕</button>`;
+    <button id="pinclear" type="button" hidden title="Remove the pin">✕</button>`;
   L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
   return d; }});
 new PinCtl({position: "topleft"}).addTo(map);
 $("pinkm").value = String(S.km);
-$("pinbtn").addEventListener("click", () => { pinning = !pinning; $("pinbtn").classList.toggle("on", pinning);
-  map.getContainer().style.cursor = pinning ? "crosshair" : ""; });
+$("pinbtn").addEventListener("click", () => { pinning = !pinning; $("pinbtn").classList.toggle("on", pinning); map.getContainer().style.cursor = pinning ? "crosshair" : ""; });
 $("pinkm").addEventListener("change", () => { S.km = +$("pinkm").value; if (S.pin) { pinRing.setRadius(S.km * 1000); update(); } });
 $("pinclear").addEventListener("click", () => { setPin(null); update(); });
-map.on("click", e => { if (!pinning) return; pinning = false; $("pinbtn").classList.remove("on"); map.getContainer().style.cursor = "";
-  setPin(e.latlng); update(); });
+map.on("click", e => { if (!pinning) return; pinning = false; $("pinbtn").classList.remove("on"); map.getContainer().style.cursor = ""; setPin(e.latlng); update(); });
 
 // ------------------------------------------------------------------ legend
 const legend = L.DomUtil.create("div", "legend");
 map.getContainer().appendChild(legend);
 L.DomEvent.disableClickPropagation(legend);
 function drawLegend() {
-  const k = (c, t) => `<div class="k"><i style="background:${c}"></i>${esc(t)}</div>`;
-  const body = S.colour === "age" ? AGE_NAME.map((n, i) => k(C.age[i], n)).join("") + k(VIZ.none, "Mānuka / no plantation date")
-    : S.colour === "land" ? Object.keys(LAND_NAME).map(l => k(C.land[l], LAND_NAME[l])).join("")
-    : KIND_NAME.map((n, i) => k(C.kind[i], n)).join("");
-  legend.innerHTML = `<div class="t">${S.colour === "age" ? "Main planting period" : S.colour === "land" ? "Land" : "Forest type"}</div>${body}
-    <div class="k"><i style="background:${C.oio};border-radius:50%"></i>Overseas buy (OIO)</div>`;
+  const k = (c, t, round) => `<div class="k"><i style="background:${c}${round ? ";border-radius:50%" : ""}"></i>${esc(t)}</div>`;
+  legend.innerHTML = (S.colour === "age" ? AGE.map((n, i) => k(C.age[i], n)).join("") + k(VIZ.none, "Mānuka / kānuka")
+    : S.colour === "land" ? Object.keys(LAND).map(l => k(C.land[l], LAND[l])).join("")
+    : KIND.map((n, i) => k(C.kind[i], n)).join("")) + k(C.oio, "Overseas buy", true);
 }
 
 // ------------------------------------------------------------------ side panel
 const LIST_MAX = 200;
-function inView() { const bb = map.getBounds(); return shown.filter(b => bb.contains(b.ll)).sort((a, b) => b.ha - a.ha); }
 function summary() {
-  const ha = k => shown.filter(b => b.k === k).reduce((s, b) => s + b.ha, 0);
-  const n = shown.length, pl = ha(0), mk = ha(1);
-  $("sum").innerHTML = `<b>${fmt(n)}</b> blocks · <b>${fmt(pl)}</b> ha plantation` + (mk ? ` · <b>${fmt(mk)}</b> ha mānuka` : "") +
-    (S.pin ? ` · within ${S.km} km of the pin` : "");
+  const ha = shown.reduce((s, b) => s + b.ha, 0);
+  $("sum").innerHTML = `<b>${fmt(shown.length)}</b> forests · <b>${fmt(ha)}</b> ha${S.pin ? ` · ${S.km} km of pin` : ""}`;
 }
 function listBlocks() {
-  const v = inView();
-  if (!v.length) return `<div class="more">No forest blocks in this view with these filters.</div>`;
-  const ha = v.reduce((s, b) => s + b.ha, 0);
-  return `<div class="note">${fmt(v.length)} in view, ${fmt(ha)} ha. Biggest first; click one to open it.</div>` +
+  const bb = map.getBounds(), v = shown.filter(b => bb.contains(b.ll)).sort((a, b) => b.ha - a.ha);
+  if (!v.length) return `<div class="more">No forests here with these filters.</div>`;
+  return `<div class="tip">${fmt(v.length)} on screen, biggest first</div>` +
     v.slice(0, LIST_MAX).map(b => `<div class="it" data-b="${b.id}"><span class="sw" style="background:${colourOf(b)}"></span>
       <span class="m"><div class="t">${esc(D[b.d] || R[b.r] || "")}</div>
-      <div class="s">${esc(KIND_NAME[b.k])}${b.k === 0 && b.main >= 0 ? " · " + AGE_NAME[b.main].toLowerCase() : ""}${b.fr ? " · forestry right" : ""}${b.cfl ? " · Crown licence" : ""}${b.oio ? " · overseas buy" : ""}</div></span>
+      <div class="s">${b.k === 0 ? (b.age >= 0 ? AGE[b.age] : "Plantation") : "Mānuka / kānuka"}${b.oio ? " · overseas buy" : ""}</div></span>
       <span class="n">${fmt(b.ha)} ha</span></div>`).join("") +
-    (v.length > LIST_MAX ? `<div class="more">and ${fmt(v.length - LIST_MAX)} more - zoom in or filter to see them.</div>` : "");
+    (v.length > LIST_MAX ? `<div class="more">+ ${fmt(v.length - LIST_MAX)} more: zoom in or filter</div>` : "");
 }
+const openFirms = new Set();
 function listManagers() {
-  const reg = regionName(), q = S.q.toLowerCase().split(/\s+/).filter(Boolean);
-  const hit = t => !q.length || q.every(w => t.toLowerCase().includes(w));
-  const fs = MG.forests.filter(f => (!reg || f.reg.includes(reg)) && hit([f.f, f.n, f.where, f.own].join(" ")));
-  const byFirm = new Map();
-  fs.forEach(f => { if (!byFirm.has(f.f)) byFirm.set(f.f, []); byFirm.get(f.f).push(f); });
-  // a firm that gives its whole-estate figure ("ESTATE TOTAL") is ranked by that, not by adding it to its forests
-  const firstNum = t => { const m = String(t).match(/\d[\d,]*(\.\d+)?/); return m ? +m[0].replace(/,/g, "") : 0; };
-  const isTot = r => /^(estate|company) total/i.test(r.n);
-  const firms = [...byFirm.entries()].map(([firm, rows]) => {
-    const tot = rows.find(isTot);
-    rows.sort((a, b) => isTot(b) - isTot(a));
-    return {firm, rows, tot, ha: tot ? firstNum(tot.hat) : rows.reduce((s, r) => s + (r.ha || 0), 0)};
-  }).sort((a, b) => b.ha - a.ha);
-  const haText = t => /^\d+(\.\d+)?$/.test(t) ? fmt(+t) : t;
-  const certs = MG.fsc.filter(c => hit(c.h));
-  let h = `<div class="note">${reg ? `Forests named in <b>${esc(reg)}</b> by the firms that manage them` : "Forests named by the firms that manage them"}
-    (their own public lists; ✓ = hectares re-read at source). Not on the map: firms name forests, not boundaries.</div>`;
-  h += firms.length ? firms.map(F => `<div class="grp">${esc(F.firm)}<span>${F.tot ? "estate " + esc(haText(F.tot.hat)) + " ha" : F.ha ? fmt(F.ha) + " ha listed" : ""}</span></div>` +
-      F.rows.filter(r => r !== F.tot || !/^(estate|company) total$/i.test(r.n)).map(r => `<div class="sub"><span>${r.src && /^https?:/.test(r.src) ? `<a href="${esc(r.src.split(" ")[0])}" target="_blank" rel="noopener">${esc(r.n)}</a>` : esc(r.n)}
-        <span class="s" style="color:var(--ol-muted)"> · ${esc(r.where)}${r.own && r.own !== F.firm ? " · owner " + esc(r.own) : ""}</span></span>
-        <span style="white-space:nowrap">${esc(haText(r.hat || ""))}${r.ok ? ' <span class="ok">✓</span>' : ""}</span></div>`).join("")).join("")
-    : `<div class="more">No named forests ${reg ? "in " + esc(reg) : ""} match.</div>`;
-  h += `<div class="grp" style="margin-top:8px">FSC certified forest managers (all NZ)<span>${fmt(certs.reduce((s, c) => s + c.ha, 0))} ha</span></div>` +
-    certs.map(c => `<div class="sub"><span><a href="${esc(c.u)}" target="_blank" rel="noopener">${esc(c.h)}</a></span><span>${fmt(c.ha)} ha</span></div>`).join("") +
-    `<div class="note">FSC area includes native reserves inside the estates. Expiry dates and NZBNs are in the spreadsheet.</div>`;
-  return h;
+  const reg = S.region >= 0 ? R[S.region] : null, w = words();
+  const fs = MG.firms.filter(F => (!reg || F.reg.includes(reg)) && (!w.length || w.every(x => F.text.includes(x))));
+  if (!fs.length) return `<div class="more">No firms ${reg ? "listed in " + esc(reg) : "match"}.</div>`;
+  return `<div class="tip">${reg ? "Firms with forests in " + esc(reg) : "All firms"}, biggest first. Click one for its forests.</div>` +
+    fs.map(F => {
+      const open = openFirms.has(F.name);
+      const tags = (F.fsc ? `<span class="tag fsc">FSC</span>` : "") + (F.chg && /^yes/i.test(F.chg) ? `<span class="tag chg">owner changed</span>`
+        : F.year && +F.year < 2025 ? `<span class="tag old">${F.year}</span>` : "");
+      const rows = F.rows.filter(x => !reg || x.reg.includes(reg));
+      return `<div class="it${open ? " open" : ""}" data-f="${esc(F.name)}"><span class="chev">${open ? "▾" : "▸"}</span>
+        <span class="m"><div class="t">${esc(F.short || F.name)}${tags}</div>
+        <div class="s">${esc(F.own || "Owner not stated")}${F.year ? " · as at " + F.year : ""}</div></span>
+        <span class="n">${F.ha ? fmt(F.ha) + " ha" : ""}</span></div>` +
+        (open ? `<div class="kids">${F.chg && F.chg !== "no" ? `<div class="kidsrc"><b>${/^yes/i.test(F.chg) ? "Changed since the list" : "Note"}:</b> ${esc(F.chg.replace(/^(yes|no): /i, ""))}</div>` : ""}` +
+          rows.slice(0, 60).map(x => `<div class="kid"><span>${x.src && x.src.startsWith("http") ? `<a href="${esc(x.src.split(" ")[0])}" target="_blank" rel="noopener">${esc(x.n)}</a>` : esc(x.n)}
+            <span class="w"> · ${esc(x.where)}</span></span><span>${x.hat && /^\d+(\.\d+)?$/.test(x.hat) ? fmt(+x.hat) : esc(x.hat || "")}</span></div>`).join("") +
+          `<div class="kidsrc">${F.fsc ? `FSC certified ${fmt(F.fsc)} ha · <a href="${esc(F.fscu)}" target="_blank" rel="noopener">certificate</a>` : ""}
+            ${F.src ? ` · <a href="${esc(F.src)}" target="_blank" rel="noopener">owner source</a>` : ""}</div></div>` : "");
+    }).join("");
 }
 function listOio() {
   const bb = map.getBounds(), v = oioShown().filter(o => bb.contains(o.c)).sort((a, b) => b.m.localeCompare(a.m));
-  if (!v.length) return `<div class="more">No overseas forestry buys placed in this view.</div>`;
-  return `<div class="note">${v.length} overseas forestry consents placed in view, newest first. 208 of 580 decisions could be placed from their address.</div>` +
+  if (!v.length) return `<div class="more">No overseas buys on screen.</div>`;
+  return `<div class="tip">Past buys 2005-2026 (OIO consents), newest first. Not today's owners.</div>` +
     v.map(o => `<div class="it" data-o="${OIO.indexOf(o)}"><span class="sw" style="background:${C.oio};border-radius:50%"></span>
-      <span class="m"><div class="t">${esc(o.b || "Buyer not named")}</div><div class="s">${esc(o.m)}${o.s ? " · from " + esc(o.s) : ""}</div></span>
+      <span class="m"><div class="t">${esc(o.b || "Buyer not named")}</div><div class="s">${esc(o.m.slice(0, 4))}${o.s ? " · from " + esc(o.s) : ""}</div></span>
       <span class="n">${o.ha ? fmt(o.ha) + " ha" : ""}</span></div>`).join("");
 }
 function drawList() {
@@ -341,41 +283,41 @@ function drawList() {
   $("list").innerHTML = S.tab === "managers" ? listManagers() : S.tab === "oio" ? listOio() : listBlocks();
 }
 $("list").addEventListener("click", e => {
+  if (e.target.closest("a")) return;
   const it = e.target.closest(".it"); if (!it) return;
   if (it.dataset.b) { const b = blocks.find(x => x.id === +it.dataset.b); if (b) pick(b, true); }
-  if (it.dataset.o) { const o = OIO[+it.dataset.o]; map.setView(o.c, Math.max(map.getZoom(), 12)); oioMarker(o).openPopup(); }
+  if (it.dataset.o) { const o = OIO[+it.dataset.o]; map.setView(o.c, Math.max(map.getZoom(), 12), {animate: false}); oioMarker(o).openPopup(); }
+  if (it.dataset.f) { const f = it.dataset.f; openFirms.has(f) ? openFirms.delete(f) : openFirms.add(f); drawList(); }
 });
 map.on("moveend", () => { if (S.tab !== "managers") drawList(); });
-map.on("zoomend", () => { const r = map.getZoom() < 8 ? 3.5 : 5; OIO.forEach(o => o.mk && o.mk.setRadius(r)); });
 
-// ------------------------------------------------------------------ CSV of what is filtered
+// ------------------------------------------------------------------ download what is filtered
 $("csv").addEventListener("click", () => {
-  const head = ["block_id", "type", "region", "district", "forest_ha", "harvest_age_ha", "main_planting_period", "titles", "largest_titles",
-    "forestry_right_titles", "crown_forest_licence_titles", "maori_land_ha", "conservation_ha", "overseas_buys_in_or_near", "lat", "lon", "google_maps"];
+  const head = ["block_id", "type", "region", "district", "forest_ha", ...AGE.map(a => "ha_" + a.toLowerCase().replace(/[^a-z0-9]+/g, "_")),
+    "titles", "largest_titles", "forestry_right_titles", "crown_forest_licence_titles", "maori_land_ha", "conservation_ha",
+    "overseas_buys_in_or_near", "lat", "lon", "satellite"];
   const q = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v;
-  const rows = shown.slice().sort((a, b) => b.ha - a.ha).map(b => [b.id, KIND_NAME[b.k], R[b.r] || "", D[b.d] || "", b.ha, b.k === 0 ? b.h25 : "",
-    b.k === 0 && b.main >= 0 ? AGE_NAME[b.main] : "", b.t, b.tt, b.fr, b.cfl, b.mao, b.con, b.oio, b.c[0], b.c[1],
-    `https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3`].map(q).join(","));
-  const blob = new Blob(["﻿" + [head.join(","), ...rows].join("\r\n")], {type: "text/csv"});
-  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "nz_forest_blocks.csv"; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const rows = shown.slice().sort((a, b) => b.ha - a.ha).map(b => [b.id, KIND[b.k], R[b.r] || "", D[b.d] || "", b.ha, ...b.ages,
+    b.t, b.tt, b.fr, b.cfl, b.mao, b.con, b.oio, b.c[0], b.c[1], `https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3`].map(q).join(","));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + [head.join(","), ...rows].join("\r\n")], {type: "text/csv"}));
+  a.download = "nz_forests.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 
 // ------------------------------------------------------------------ one update for every change
 function syncControls() {
-  for (const [box, key] of [["f-kind", "kind"], ["f-size", "size"], ["f-age", "age"], ["f-land", "land"]])
-    $(box).querySelectorAll(".chip").forEach(c => c.classList.toggle("on", S[key].has(c.dataset.v)));
-  $("f-colour").querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.v === S.colour));
-  regSel.value = String(S.region);
+  $("f-kind").value = S.kind; $("f-age").value = S.age; $("f-size").value = S.size; $("f-land").value = S.land;
+  $("f-region").value = S.region < 0 ? "" : S.region; $("f-district").value = S.district < 0 ? "" : S.district;
+  for (const id of ["f-kind", "f-age", "f-size", "f-land", "f-region", "f-district"]) $(id).classList.toggle("set", $(id).value !== "");
+  $("f-colour").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === S.colour));
 }
 function update(zoomTo) {
   syncControls(); draw(); summary(); drawLegend(); drawList(); writeHash();
-  if (zoomTo && shown.length && (S.region >= 0 || S.district >= 0)) {
-    const bb = L.latLngBounds(shown.map(b => b.ll)); map.fitBounds(bb, {padding: [30, 30], maxZoom: 12});
-  }
+  if (zoomTo && shown.length && (S.region >= 0 || S.district >= 0))
+    map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});
 }
 $("q").value = S.q; fillDistricts();
 if (S.pin) setPin(L.latLng(S.pin[0], S.pin[1]));
 update(S.region >= 0 || S.district >= 0);
-if (S.pin) map.fitBounds(pinRing.getBounds());
+if (S.pin) map.fitBounds(pinRing.getBounds(), {animate: false});
 })().catch(e => { document.getElementById("list").innerHTML = `<div class="more">The map could not load: ${String(e.message || e)}</div>`; console.error(e); });
