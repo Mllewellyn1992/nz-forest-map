@@ -11,11 +11,15 @@ const fmt = n => Math.round(n).toLocaleString("en-NZ");
 const VIZ = window.OL_VIZ, dark = VIZ.dark;
 
 // ------------------------------------------------------------------ colours and names
-const C = dark ? {kind: ["#4cae6c", "#d9ac3a"], hg: ["#e8664c", "#f0a050", "#e8d77a", "#4cae6c", "#a99bd8"],
+const C = dark ? {kind: ["#4cae6c", "#d9ac3a"], hg: ["#e8664c", "#f0a050", "#e8d77a", "#8cc46a", "#3f9a5a", "#a99bd8"],
+  soon: ["#4a4237", "#8a6a3a", "#c97a3a", "#f08a5c"],
   mgr: {named: "#5d9cf0", cfl: "#a487f0", none: "#6d7177"}, sel: "#ffffff"}
-  : {kind: ["#2d7a46", "#c8901e"], hg: ["#b23a26", "#e0832a", "#dcc24a", "#2d7a46", "#7f6fb8"],
+  : {kind: ["#2d7a46", "#c8901e"], hg: ["#b23a26", "#e0832a", "#dcc24a", "#7fae4a", "#2d6a40", "#7f6fb8"],
+  soon: ["#efe3c8", "#e6b46e", "#d0702e", "#9c2f1a"],
   mgr: {named: "#2f6fde", cfl: "#7a4fd6", none: "#a9aeb5"}, sel: "#111418"};
 const KIND = ["Plantation", "Mānuka / kānuka"];
+// default harvest colour: how much of each block is due by 2033 (a share, so one giant block does not hide its near-term part)
+const SOON_STEPS = [0, .1, .25, .5], SOON_TEXT = ["Under 10%", "10-25%", "25-50%", "Half or more"];
 const MGR = {named: "In a manager's list", cfl: "Crown forest licence", none: "Not matched"};
 const SIZES = [["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
@@ -28,7 +32,8 @@ const SHORT = Object.fromEntries(MG.firms.map(F => [F.name, F.short || F.name]))
 blocks.forEach(b => {
   b.mgr = b.mg.length ? "named" : b.cfl ? "cfl" : "none";
   b.firms = [...new Set(b.mg.map(m => SHORT[m[0]]))];
-  b.main = b.k === 0 && b.hg.some(v => v) ? b.hg.indexOf(Math.max(...b.hg)) : -1;     // the harvest group with most ha
+  b.soon = b.hg[0] + b.hg[1];                                  // ha due by 2033: the near-term work
+  b.step = b.k === 0 && b.ha ? SOON_STEPS.findLastIndex(t => b.soon / b.ha >= t) : -1;
   b.text = [R[b.r], D[b.d], b.tt, KIND[b.k], ...b.firms, ...b.mg.map(m => m[1])].join(" ").toLowerCase();
   b.ll = L.latLng(b.c[0], b.c[1]);
 });
@@ -119,7 +124,7 @@ function passes(b) {
 }
 const dueOn = () => S.colour === "due" && S.due !== "";          // one harvest period picked: colour that period, darker = more of the block
 const share = b => b.ha ? Math.min(1, b.hg[+S.due] / b.ha) : 0;
-const colourOf = b => S.colour === "due" ? (dueOn() ? C.hg[+S.due] : b.main >= 0 ? C.hg[b.main] : VIZ.none)
+const colourOf = b => S.colour === "due" ? (dueOn() ? C.hg[+S.due] : b.step >= 0 ? C.soon[b.step] : VIZ.none)
   : S.colour === "mgr" ? C.mgr[b.mgr] : C.kind[b.k];
 
 // ------------------------------------------------------------------ drawing
@@ -210,7 +215,7 @@ function drawLegend() {
   const k = (c, t, round) => `<div class="k"><i style="background:${c}${round ? ";border-radius:50%" : ""}"></i>${esc(t)}</div>`;
   legend.innerHTML = (dueOn() ? `<div class="lh">${esc(HG[+S.due])}</div>` + [[1, "All of the block"], [.5, "Half"], [.1, "A tenth"]].map(([f, t]) =>
       `<div class="k"><i style="background:${C.hg[+S.due]};opacity:${.15 + .75 * Math.sqrt(f)}"></i>${t}</div>`).join("")
-    : S.colour === "due" ? `<div class="lh">Most of the block due</div>` + HG.map((n, i) => k(C.hg[i], n)).join("") + k(VIZ.none, "Mānuka / kānuka")
+    : S.colour === "due" ? `<div class="lh">Share of block due by 2033</div>` + SOON_TEXT.map((n, i) => k(C.soon[i], n)).reverse().join("") + k(VIZ.none, "Mānuka / kānuka")
     : S.colour === "mgr" ? Object.keys(MGR).map(l => k(C.mgr[l], MGR[l])).join("")
     : KIND.map((n, i) => k(C.kind[i], n)).join(""));
 }
@@ -233,7 +238,7 @@ function listBlocks() {
     v.slice(0, LIST_MAX).map(b => `<div class="it" data-b="${b.id}"><span class="sw" style="background:${colourOf(b)}"></span>
       <span class="m"><div class="t">${esc(D[b.d] || R[b.r] || "")}</div>
       <div class="s">${b.k === 0 && S.due !== "" ? `${fmt(b.hg[+S.due])} ha ${esc(HG[+S.due].replace(/^Due /, "due ").replace(/^Felled/, "felled").replace(/^(\d)/, "due $1"))}${b.firms.length ? " · " + esc(b.firms.join(", ")) : ""}`
-        : b.k === 0 ? [b.main >= 0 ? "Most " + HG[b.main].replace(/^Due /, "due ").replace(/^Felled/, "felled").replace(/^(\d)/, "due $1") : "Plantation", b.firms.join(", ")].filter(Boolean).map(esc).join(" · ") : "Mānuka / kānuka"}</div></span>
+        : b.k === 0 ? [b.ha ? `${fmt(b.soon)} ha due by 2033` : "Plantation", b.firms.join(", ")].filter(Boolean).map(esc).join(" · ") : "Mānuka / kānuka"}</div></span>
       <span class="n">${fmt(b.ha)} ha</span></div>`).join("") +
     (v.length > LIST_MAX ? `<div class="more">+ ${fmt(v.length - LIST_MAX)} more: zoom in or filter</div>` : "");
 }

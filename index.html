@@ -142,7 +142,7 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
   <h2 id="abouth">How up to date is each part?</h2>
   <table>
     <tr><td>Forests</td><td>Land cover mapped in 2023/24. Blocks of 50 ha+ only. Plantation total <span id="a-pl"></span> ha (MPI: 1.82m ha).</td></tr>
-    <tr><td>Harvest due</td><td>Planting year from the 1996-2023 land-cover maps, corrected by satellite felling to 2025 (Global Forest Watch, 30 m). Due = planted + 28 years. Felled 2024-25 = cut in the last two years.</td></tr>
+    <tr><td>Harvest due</td><td>Planting year from the 1996-2023 land-cover maps and satellite felling to 2025 (Global Forest Watch), then scaled so each region's age mix matches MPI's (NEFD). Due = planted + 28 years. An estimate per block, not a harvest plan. Felled 2024-25 = cut in the last two years.</td></tr>
     <tr><td>Manager on map</td><td>A firm's named forests placed by LINZ place names. Covers about a third of plantation area, so "Not matched" does not mean no manager.</td></tr>
     <tr><td>Managers</td><td>Each firm's latest public list. The date is on every firm; <span class="tag old">older</span> = before 2025, <span class="tag chg">owner changed</span> = sold since the list.</td></tr>
     <tr><td>FSC</td><td>Current certificates, read 23 Nov 2026.</td></tr>
@@ -154,6 +154,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=12"></script>
+<script src="forest.js?v=13"></script>
 </body>
 </html>
