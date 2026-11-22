@@ -1,0 +1,377 @@
+/* house.css - the house colours as CSS variables, for every page: globals.css imports it (the React pages), and map.css,
+   industry.css and orgchart.css @import it (base.js adds it when a page has not). KEEP IN STEP: tailwind.config.ts points
+   its colours at the --c-* channels below, and src/lib/palette.ts reads the --ol-* ones at run time (today's hex as its
+   fallback); change a colour here and all three follow. Data-viz category colours for /map and /industry (owner types,
+   industries, ranks) are not here: they are the OL_VIZ palette in public/map/base.js. (2026-10-27 design review)
+   2026-10-28 dark mode: every colour is a variable with a light and a dark value. --c-* are "R G B" channels so Tailwind's
+   opacity modifiers (bg-gray-50/40) keep working; --ol-* are the same colours as rgb(...) for the plain CSS pages.
+   Light values are the ones the site had (unchanged); the dark ones follow the computer's setting, or the Account menu's
+   Theme choice (data-theme on <html>, set before first paint by the script in src/app/layout.tsx). The two dark blocks
+   at the foot must stay the same: one is the computer's setting, the other the Account choice. */
+:root {
+  color-scheme: light;
+  /* channels: white (cards), the Tailwind scales and the named colours, as tailwind.config.ts names them */
+  --c-white: 255 253 248;
+  --c-gray-50: 245 241 234;
+  --c-gray-100: 241 235 224;
+  --c-gray-200: 233 226 213;
+  --c-gray-300: 217 207 189;
+  --c-gray-400: 115 107 91;
+  --c-gray-500: 97 90 78;
+  --c-gray-600: 75 70 61;
+  --c-gray-700: 59 66 82;
+  --c-gray-800: 42 47 58;
+  --c-gray-900: 28 34 48;
+  --c-gray-950: 17 20 28;
+  --c-blue-50: 240 241 242;
+  --c-blue-100: 231 233 235;
+  --c-blue-200: 207 211 215;
+  --c-blue-300: 169 176 183;
+  --c-blue-400: 122 131 140;
+  --c-blue-500: 83 92 102;
+  --c-blue-600: 43 49 56;
+  --c-blue-700: 34 39 46;
+  --c-blue-800: 26 30 35;
+  --c-blue-900: 21 25 30;
+  --c-blue-950: 13 16 19;
+  --c-red-50: 248 237 233;
+  --c-red-100: 242 221 214;
+  --c-red-200: 232 196 185;
+  --c-red-300: 217 160 145;
+  --c-red-400: 196 117 98;
+  --c-red-500: 176 83 62;
+  --c-red-600: 163 65 47;
+  --c-red-700: 155 58 42;
+  --c-red-800: 126 46 33;
+  --c-red-900: 99 36 25;
+  --c-red-950: 61 21 14;
+  --c-gold-50: 246 239 226;
+  --c-gold-100: 239 227 201;
+  --c-gold-200: 227 211 179;
+  --c-gold-300: 211 187 138;
+  --c-gold-400: 185 154 91;
+  --c-gold-500: 160 129 63;
+  --c-gold-600: 138 109 47;
+  --c-gold-700: 122 90 36;
+  --c-gold-800: 107 78 31;
+  --c-gold-900: 86 64 27;
+  --c-gold-950: 51 37 15;
+  --c-green-50: 238 247 240;
+  --c-green-100: 220 236 223;
+  --c-green-200: 207 227 211;
+  --c-green-300: 169 205 178;
+  --c-green-400: 111 165 127;
+  --c-green-500: 63 129 85;
+  --c-green-600: 45 110 67;
+  --c-green-700: 31 95 53;
+  --c-green-800: 25 77 43;
+  --c-green-900: 20 61 34;
+  --c-green-950: 11 36 20;
+  --c-brass: 15 122 114;
+  --c-brass-dark: 10 86 80;
+  --c-brass-tint: 227 240 238;
+  --c-brass-mark: 191 227 221;
+  --c-brass-line: 185 219 214;
+  --c-brass-wash: 238 245 243;
+  --c-brass-soft: 211 232 229;
+  --c-line: 229 225 216;
+  --c-ink: 29 36 51;
+  --c-paper: 250 248 243;
+  --c-sheet: 251 248 241;
+  --c-wash: 247 242 232;
+  --c-note: 251 243 226;
+  --c-grid: 239 233 222;
+  --c-shadow: 28 34 48;
+  /* paper */
+  --ol-page: rgb(var(--c-gray-50));          /* gray-50: the page */
+  --ol-card: rgb(var(--c-white));            /* white: cards and panels */
+  --ol-paper: rgb(var(--c-paper));           /* paper: inputs and quiet panels on a card */
+  --ol-chip: rgb(var(--c-gray-100));         /* gray-100: hover, chips */
+  --ol-line: rgb(var(--c-line));             /* line: hairlines */
+  --ol-line2: rgb(var(--c-gray-200));        /* gray-200 */
+  --ol-rule: rgb(var(--c-gray-300));         /* gray-300: firmer borders */
+  --ol-grid: rgb(var(--c-grid));             /* chart grid lines (C.grid) */
+  /* text */
+  --ol-ink: rgb(var(--c-ink));               /* ink: headline text and dark buttons */
+  --ol-text: rgb(var(--c-gray-900));         /* gray-900 */
+  --ol-body: rgb(var(--c-gray-700));         /* gray-700 */
+  --ol-text2: rgb(var(--c-gray-600));        /* gray-600 */
+  --ol-muted: rgb(var(--c-gray-500));        /* gray-500: muted text, 4.5:1+ on page and card */
+  --ol-faint: rgb(var(--c-gray-400));        /* gray-400: the faintest text colour */
+  --ol-charcoal: rgb(var(--c-blue-600));     /* blue-600: charcoal buttons */
+  --ol-slate: rgb(var(--c-blue-500));        /* blue-500 */
+  --ol-mist: rgb(var(--c-blue-300));         /* blue-300: quiet grey marks (not text) */
+  --ol-dark: rgb(var(--c-blue-900));         /* blue-900: the darkest mark (a picked pin's ring) */
+  /* accent */
+  --ol-brass: rgb(var(--c-brass));
+  --ol-brass-dark: rgb(var(--c-brass-dark));
+  --ol-brass-tint: rgb(var(--c-brass-tint));
+  --ol-brass-mark: rgb(var(--c-brass-mark));
+  --ol-brass-line: rgb(var(--c-brass-line));
+  /* signals */
+  --ol-negative: rgb(var(--c-red-700));
+  --ol-flag: rgb(var(--c-gold-600));         /* gold */
+  --ol-ok: rgb(var(--c-green-700));          /* ok: saved / up to date */
+  --ol-note: rgb(var(--c-note));             /* a quiet notice band */
+  /* type and corners */
+  --ol-font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ol-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --ol-r: 3px;               /* rounded */
+  --ol-r-lg: 4px;            /* rounded-lg */
+  --ol-r-xl: 6px;            /* rounded-xl */
+  --ol-shadow: 0 2px 8px rgb(var(--c-shadow) / .08);
+  --ol-shadow-pop: 0 6px 24px rgb(var(--c-shadow) / .16);
+  /* series colours for peers, sites and families (src/lib/palette.ts SERIES), most distinct first */
+  --ol-s0: #2b3138;
+  --ol-s1: #0f7a72;
+  --ol-s2: #5d5a8c;
+  --ol-s3: #9b4f3a;
+  --ol-s4: #8a6d2f;
+  --ol-s5: #7a8594;
+  --ol-s6: #4f7a63;
+  --ol-s7: #a06a7c;
+  --ol-s8: #56693a;
+  --ol-s9: #3f7f8f;
+  --ol-s10: #2f5f86;
+  --ol-s11: #c09a5a;
+  --ol-s12: #6e9480;
+  --ol-s13: #b9745c;
+  --ol-s14: #857fb0;
+  --ol-s15: #a04a5a;
+  --ol-s16: #6a8aa0;
+  /* the owner web's own colours (palette.ts WEB) */
+  --ol-web-lone: #7f9c97;
+  --ol-web-person: #8a74d0;
+  --ol-web-person-text: #4b3f7a;
+  --ol-web-family: #d9779c;
+  --ol-web-family-text: #8a3558;
+  --ol-web-pro: #b4ada2;
+  --ol-web-known: #f0a020;
+  --ol-web-other: #c9bfae;
+  --ol-web-own-line: #a9c7c1;
+  --ol-web-sits-line: #c8bde8;
+  --ol-web-hl-line: #7c6bd6;
+  /* the landing page's charts (src/app/page.tsx, components/landing/Visuals.tsx): white on a coloured mark, the
+     lightest revenue band, the government circle */
+  --ol-on-mark: #ffffff;
+  --ol-band0: #a9d3ce;
+  --ol-b2g: #5a5f9a;
+}
+/* dark: warm deep charcoal paper, light warm text, the teal / gold / green / red lifted to read on it (every text
+   colour 4.5:1+ on the page, cards, paper and chips). Mirror images of each other - change both. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --c-white: 36 33 29;
+    --c-gray-50: 26 24 21;
+    --c-gray-100: 45 42 37;
+    --c-gray-200: 58 54 47;
+    --c-gray-300: 77 71 62;
+    --c-gray-400: 163 154 139;
+    --c-gray-500: 176 167 152;
+    --c-gray-600: 191 183 169;
+    --c-gray-700: 208 201 189;
+    --c-gray-800: 221 215 204;
+    --c-gray-900: 232 226 216;
+    --c-gray-950: 244 240 232;
+    --c-blue-50: 37 39 42;
+    --c-blue-100: 45 48 52;
+    --c-blue-200: 59 63 68;
+    --c-blue-300: 86 92 99;
+    --c-blue-400: 138 145 152;
+    --c-blue-500: 169 175 182;
+    --c-blue-600: 200 204 209;
+    --c-blue-700: 214 217 221;
+    --c-blue-800: 226 229 232;
+    --c-blue-900: 238 240 241;
+    --c-blue-950: 246 247 248;
+    --c-red-50: 57 43 38;
+    --c-red-100: 69 49 42;
+    --c-red-200: 89 58 50;
+    --c-red-300: 116 72 61;
+    --c-red-400: 173 75 58;
+    --c-red-500: 200 99 81;
+    --c-red-600: 223 119 100;
+    --c-red-700: 230 130 112;
+    --c-red-800: 241 155 138;
+    --c-red-900: 251 179 165;
+    --c-red-950: 255 213 205;
+    --c-gold-50: 52 46 36;
+    --c-gold-100: 61 53 40;
+    --c-gold-200: 76 65 46;
+    --c-gold-300: 96 82 54;
+    --c-gold-400: 138 109 47;
+    --c-gold-500: 153 124 62;
+    --c-gold-600: 175 145 84;
+    --c-gold-700: 183 154 97;
+    --c-gold-800: 199 174 126;
+    --c-gold-900: 216 195 156;
+    --c-gold-950: 236 220 190;
+    --c-green-50: 44 48 39;
+    --c-green-100: 48 56 45;
+    --c-green-200: 55 70 55;
+    --c-green-300: 65 89 68;
+    --c-green-400: 56 118 75;
+    --c-green-500: 79 141 96;
+    --c-green-600: 100 162 116;
+    --c-green-700: 112 171 127;
+    --c-green-800: 138 188 150;
+    --c-green-900: 167 207 176;
+    --c-green-950: 198 229 204;
+    --c-brass: 83 174 165;
+    --c-brass-dark: 106 197 187;
+    --c-brass-tint: 42 51 47;
+    --c-brass-mark: 53 84 78;
+    --c-brass-line: 54 87 81;
+    --c-brass-wash: 40 46 41;
+    --c-brass-soft: 51 78 73;
+    --c-line: 52 48 42;
+    --c-ink: 236 230 220;
+    --c-paper: 31 29 25;
+    --c-sheet: 42 39 34;
+    --c-wash: 44 41 36;
+    --c-note: 53 46 36;
+    --c-grid: 52 48 42;
+    --c-shadow: 0 0 0;
+    --ol-shadow: 0 2px 8px rgb(0 0 0 / .32);
+    --ol-shadow-pop: 0 6px 24px rgb(0 0 0 / .5);
+    --ol-s0: #bcc3cc;
+    --ol-s1: #43a097;
+    --ol-s2: #9e9dd3;
+    --ol-s3: #d88770;
+    --ol-s4: #a6894b;
+    --ol-s5: #707a89;
+    --ol-s6: #6b977e;
+    --ol-s7: #ab7587;
+    --ol-s8: #8fa573;
+    --ol-s9: #5090a0;
+    --ol-s10: #7bacd8;
+    --ol-s11: #8d6a28;
+    --ol-s12: #557a66;
+    --ol-s13: #aa674f;
+    --ol-s14: #7973a3;
+    --ol-s15: #dc808e;
+    --ol-s16: #5c7c91;
+    --ol-web-lone: #536f6a;
+    --ol-web-person: #836cc8;
+    --ol-web-person-text: #c4baff;
+    --ol-web-family: #b2557a;
+    --ol-web-family-text: #f596b8;
+    --ol-web-pro: #5c564c;
+    --ol-web-known: #f0a020;
+    --ol-web-other: #51493a;
+    --ol-web-own-line: #344e49;
+    --ol-web-sits-line: #4c4266;
+    --ol-web-hl-line: #8473df;
+    --ol-on-mark: rgb(36 33 29);
+    --ol-band0: #224945;
+    --ol-b2g: #9098d7;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --c-white: 36 33 29;
+  --c-gray-50: 26 24 21;
+  --c-gray-100: 45 42 37;
+  --c-gray-200: 58 54 47;
+  --c-gray-300: 77 71 62;
+  --c-gray-400: 163 154 139;
+  --c-gray-500: 176 167 152;
+  --c-gray-600: 191 183 169;
+  --c-gray-700: 208 201 189;
+  --c-gray-800: 221 215 204;
+  --c-gray-900: 232 226 216;
+  --c-gray-950: 244 240 232;
+  --c-blue-50: 37 39 42;
+  --c-blue-100: 45 48 52;
+  --c-blue-200: 59 63 68;
+  --c-blue-300: 86 92 99;
+  --c-blue-400: 138 145 152;
+  --c-blue-500: 169 175 182;
+  --c-blue-600: 200 204 209;
+  --c-blue-700: 214 217 221;
+  --c-blue-800: 226 229 232;
+  --c-blue-900: 238 240 241;
+  --c-blue-950: 246 247 248;
+  --c-red-50: 57 43 38;
+  --c-red-100: 69 49 42;
+  --c-red-200: 89 58 50;
+  --c-red-300: 116 72 61;
+  --c-red-400: 173 75 58;
+  --c-red-500: 200 99 81;
+  --c-red-600: 223 119 100;
+  --c-red-700: 230 130 112;
+  --c-red-800: 241 155 138;
+  --c-red-900: 251 179 165;
+  --c-red-950: 255 213 205;
+  --c-gold-50: 52 46 36;
+  --c-gold-100: 61 53 40;
+  --c-gold-200: 76 65 46;
+  --c-gold-300: 96 82 54;
+  --c-gold-400: 138 109 47;
+  --c-gold-500: 153 124 62;
+  --c-gold-600: 175 145 84;
+  --c-gold-700: 183 154 97;
+  --c-gold-800: 199 174 126;
+  --c-gold-900: 216 195 156;
+  --c-gold-950: 236 220 190;
+  --c-green-50: 44 48 39;
+  --c-green-100: 48 56 45;
+  --c-green-200: 55 70 55;
+  --c-green-300: 65 89 68;
+  --c-green-400: 56 118 75;
+  --c-green-500: 79 141 96;
+  --c-green-600: 100 162 116;
+  --c-green-700: 112 171 127;
+  --c-green-800: 138 188 150;
+  --c-green-900: 167 207 176;
+  --c-green-950: 198 229 204;
+  --c-brass: 83 174 165;
+  --c-brass-dark: 106 197 187;
+  --c-brass-tint: 42 51 47;
+  --c-brass-mark: 53 84 78;
+  --c-brass-line: 54 87 81;
+  --c-brass-wash: 40 46 41;
+  --c-brass-soft: 51 78 73;
+  --c-line: 52 48 42;
+  --c-ink: 236 230 220;
+  --c-paper: 31 29 25;
+  --c-sheet: 42 39 34;
+  --c-wash: 44 41 36;
+  --c-note: 53 46 36;
+  --c-grid: 52 48 42;
+  --c-shadow: 0 0 0;
+  --ol-shadow: 0 2px 8px rgb(0 0 0 / .32);
+  --ol-shadow-pop: 0 6px 24px rgb(0 0 0 / .5);
+  --ol-s0: #bcc3cc;
+  --ol-s1: #43a097;
+  --ol-s2: #9e9dd3;
+  --ol-s3: #d88770;
+  --ol-s4: #a6894b;
+  --ol-s5: #707a89;
+  --ol-s6: #6b977e;
+  --ol-s7: #ab7587;
+  --ol-s8: #8fa573;
+  --ol-s9: #5090a0;
+  --ol-s10: #7bacd8;
+  --ol-s11: #8d6a28;
+  --ol-s12: #557a66;
+  --ol-s13: #aa674f;
+  --ol-s14: #7973a3;
+  --ol-s15: #dc808e;
+  --ol-s16: #5c7c91;
+  --ol-web-lone: #536f6a;
+  --ol-web-person: #836cc8;
+  --ol-web-person-text: #c4baff;
+  --ol-web-family: #b2557a;
+  --ol-web-family-text: #f596b8;
+  --ol-web-pro: #5c564c;
+  --ol-web-known: #f0a020;
+  --ol-web-other: #51493a;
+  --ol-web-own-line: #344e49;
+  --ol-web-sits-line: #4c4266;
+  --ol-web-hl-line: #8473df;
+  --ol-on-mark: rgb(36 33 29);
+  --ol-band0: #224945;
+  --ol-b2g: #9098d7;
+}
