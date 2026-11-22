@@ -59,6 +59,16 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 .tag.fsc{background:var(--ol-chip);color:var(--ol-ok)}
 .tag.old{background:var(--viz-sale-no-tint);color:var(--viz-sale-no-text)}
 .tag.chg{background:var(--viz-sale-now-tint);color:var(--viz-sale-now-text)}
+#pipe{padding:6px 16px 10px;border-bottom:1px solid var(--ol-line)}
+#pipe:empty{display:none}
+#pipe .ph{font-size:12px;font-weight:600;color:var(--ol-text2);margin-bottom:3px}
+#pipe .pr{display:grid;grid-template-columns:96px 1fr 70px;gap:8px;align-items:center;font-size:12.5px;padding:2px 4px;margin:0 -4px;border-radius:3px;cursor:pointer}
+#pipe .pr:hover{background:var(--ol-chip)}
+#pipe .pr.on{background:var(--ol-chip);font-weight:600}
+#pipe .pb{height:9px;background:var(--ol-chip);border-radius:2px;overflow:hidden}
+#pipe .pb span{display:block;height:100%}
+#pipe .pn{text-align:right;font-variant-numeric:tabular-nums;color:var(--ol-ink)}
+.legend .lh{font-size:12px;color:var(--ol-muted);margin-bottom:2px}
 .more{padding:10px 16px;color:var(--ol-muted);font-size:13px}
 .legend{position:absolute;left:12px;bottom:26px;z-index:500;background:var(--ol-card);border:1px solid var(--ol-line);
   border-radius:var(--ol-r-xl);box-shadow:var(--ol-shadow);padding:8px 10px;font-size:12.5px}
@@ -109,15 +119,16 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
     <div class="filters">
       <input class="full" type="search" id="q" placeholder="Search a place, title or company">
       <label>Type<select id="f-kind"></select></label>
-      <label>Age<select id="f-age"></select></label>
+      <label>Harvest due<select id="f-due"></select></label>
       <label>Region<select id="f-region"></select></label>
       <label>Size<select id="f-size"></select></label>
       <label id="disbox" class="full" hidden>District<select id="f-district"></select></label>
-      <label class="full">Land<select id="f-land"></select></label>
+      <label class="full">Manager<select id="f-mgr"></select></label>
       <label class="full">Colour by<span class="seg" id="f-colour"></span></label>
     </div>
     <div class="sum"><span id="sum"></span><span class="sp"></span>
       <button class="lnk" id="reset" type="button">Clear</button><button class="lnk" id="csv" type="button">Download</button></div>
+    <div id="pipe"></div>
     <div class="tabs" role="tablist">
       <button class="on" data-tab="blocks" type="button">Forests</button>
       <button data-tab="managers" type="button">Managers</button>
@@ -131,7 +142,8 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
   <h2 id="abouth">How up to date is each part?</h2>
   <table>
     <tr><td>Forests</td><td>Land cover mapped in 2023/24. Blocks of 50 ha+ only. Plantation total <span id="a-pl"></span> ha (MPI: 1.82m ha).</td></tr>
-    <tr><td>Age</td><td>When the land first shows as forest on the 1996-2023 maps, given as age today. Land felled and replanted between maps can look older.</td></tr>
+    <tr><td>Harvest due</td><td>Planting year from the 1996-2023 land-cover maps, corrected by satellite felling to 2025 (Global Forest Watch, 30 m). Due = planted + 28 years. Felled 2024-25 = cut in the last two years.</td></tr>
+    <tr><td>Manager on map</td><td>A firm's named forests placed by LINZ place names. Covers about a third of plantation area, so "Not matched" does not mean no manager.</td></tr>
     <tr><td>Managers</td><td>Each firm's latest public list. The date is on every firm; <span class="tag old">older</span> = before 2025, <span class="tag chg">owner changed</span> = sold since the list.</td></tr>
     <tr><td>FSC</td><td>Current certificates, read 23 Nov 2026.</td></tr>
     <tr><td>Owners</td><td>Land owner names are not shown (LINZ licence needed).</td></tr>
@@ -142,6 +154,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=8"></script>
+<script src="forest.js?v=12"></script>
 </body>
 </html>
