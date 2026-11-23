@@ -28,7 +28,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 30;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 31;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
@@ -65,7 +65,9 @@ const RM_ALIAS = {"OneFortyOne": "OneFortyOne New Zealand Limited", "Juken NZ (J
 const MG_BY = {};
 MG.firms.forEach(F => { MG_BY[F.name] = F; MG_BY[F.short || F.name] = MG_BY[F.short || F.name] || F; });
 const rmFirm = n => RM_ALIAS[n] || (MG_BY[n] ? MG_BY[n].name : n);
+const openFirms = new Set();
 blocks.forEach(b => { b.fk = new Set([...b.mg.map(m => m[0]), ...(b.rm.length ? [rmFirm(b.rm[0])] : [])]); });   // firms named on each block (for the firm pick)
+const UNPLACED = MG.firms.filter(F => !blocks.some(b => b.fk.has(F.name)));   // on a manager's list, no forest placed on the map
 // local forestry firms Google Maps lists in each region (managers, silviculture, logging crews, sawmills)
 const LOCAL = (MG.local || []).map(([n, t, town, ph, web, r]) => ({n, t, town, ph, web, r, text: [n, t, town, r].join(" ").toLowerCase()}));
 const LOCAL_TYPES = ["Forestry services", "Logging / harvesting", "Sawmill"];
@@ -126,7 +128,8 @@ function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   Object.assign(S, BLANK);
   for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab"]) if (p.has(k)) S[k] = p.get(k);
-  for (const k of ["region", "district", "km"]) if (p.has(k)) S[k] = +p.get(k);
+  for (const k of ["region", "district"]) if (p.has(k)) S[k] = +p.get(k);
+  if (p.has("km")) S.km = /^d\d+$/.test(p.get("km")) ? p.get("km") : +p.get("km") || 25;   // "d30" = a 30 min drive
   if (!["blocks", "managers"].includes(S.tab)) S.tab = "blocks";
   S.pin = p.get("pin") ? p.get("pin").split(",").map(Number) : null;
   S.fm = p.get("fm") ? p.get("fm").split("|") : [];          // firms picked in the Managers tab
@@ -172,7 +175,16 @@ document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click
 
 // ------------------------------------------------------------------ which blocks pass
 const DUE_MIN = 50;                   // a block counts for a harvest period when 50 ha+ (or a quarter of a small block) falls in it
-const near = ll => S.pin && map.distance(L.latLng(S.pin[0], S.pin[1]), ll) <= S.km * 1000;
+const isDrive = () => /^d\d+$/.test(String(S.km)), driveMin = () => +String(S.km).slice(1);
+const near = ll => S.pin && (isDrive() ? !!(drive && drive.rings) && ll.lat >= drive.bb[1] && ll.lat <= drive.bb[3] && ll.lng >= drive.bb[0]
+  && ll.lng <= drive.bb[2] && inPoly(drive.rings, ll.lng, ll.lat) : map.distance(L.latLng(S.pin[0], S.pin[1]), ll) <= S.km * 1000);
+function inPoly(rings, x, y) {   // even-odd over every ring, so holes stay out (as AquilaLens)
+  let inside = false;
+  for (const rg of rings) for (let i = 0, j = rg.length - 1; i < rg.length; j = i++) {
+    const [xi, yi] = rg[i], [xj, yj] = rg[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside; }
+  return inside;
+}
 const words = () => S.q.toLowerCase().split(/\s+/).filter(Boolean);
 function passes(b, anyFirm) {
   if (!anyFirm && S.fm.length && !S.fm.some(f => b.fk.has(f))) return false;
@@ -251,28 +263,57 @@ map.getContainer().addEventListener("click", e => {
 });
 
 // ------------------------------------------------------------------ drop a pin (km ring, as AquilaLens's pin tool)
-let pinMk = null, pinRing = null, pinning = false;
+let pinMk = null, pinRing = null, pinning = false, drive = null;   // drive = {key, rings, bb, f, err} for a drive-time pin
 function setPin(ll) {
-  if (pinMk) { map.removeLayer(pinMk); map.removeLayer(pinRing); pinMk = pinRing = null; }
+  if (pinMk) { map.removeLayer(pinMk); pinMk = null; }
   S.pin = ll ? [ll.lat, ll.lng] : null;
   if (S.pin) {
     pinMk = L.marker(S.pin, {draggable: true, title: "Drag to move"}).addTo(map);
-    pinRing = L.circle(S.pin, {radius: S.km * 1000, color: VIZ.tool.ring, weight: 2, fillColor: VIZ.tool.ring, fillOpacity: .04, interactive: false}).addTo(map);
     pinMk.on("dragend", () => { setPin(pinMk.getLatLng()); update(); });
   }
+  drawRing();
   $("pinclear").hidden = !S.pin;
 }
+// the pin's reach: a km circle, or the area reachable by car in N minutes from the free Valhalla server on OpenStreetMap
+// roads (valhalla1.openstreetmap.de, as AquilaLens; no key, light use: each area asked once per page; max 60 min)
+const ISO = {};
+function drawRing(fit) {
+  if (pinRing) { map.removeLayer(pinRing); pinRing = null; }
+  if (!S.pin) { drive = null; return; }
+  const sty = {color: VIZ.tool.ring, weight: 2, fillColor: VIZ.tool.ring, fillOpacity: .04, interactive: false};
+  if (!isDrive()) { drive = null; pinRing = L.circle(S.pin, {radius: S.km * 1000, ...sty}).addTo(map); }
+  else {
+    const k = `${S.pin[0].toFixed(4)},${S.pin[1].toFixed(4)},${driveMin()}`;
+    if (!drive || drive.key !== k) {
+      const d = drive = {key: k, rings: null, err: ""};
+      const ask = {locations: [{lat: S.pin[0], lon: S.pin[1]}], costing: "auto", contours: [{time: driveMin()}], polygons: true};
+      (ISO[k] = ISO[k] || fetch("https://valhalla1.openstreetmap.de/isochrone?json=" + encodeURIComponent(JSON.stringify(ask)))
+        .then(x => { if (!x.ok) throw new Error(`the drive-time service said ${x.status} - try again in a minute`); return x.json(); }))
+        .then(g => { if (drive !== d) return;
+          const f = g.features && g.features.find(x => x.geometry && /Polygon/.test(x.geometry.type)); if (!f) throw new Error("no drive-time area came back");
+          d.f = f; d.rings = f.geometry.type === "MultiPolygon" ? f.geometry.coordinates.flat() : f.geometry.coordinates;
+          const pts = d.rings.flat(); d.bb = [Math.min(...pts.map(q => q[0])), Math.min(...pts.map(q => q[1])), Math.max(...pts.map(q => q[0])), Math.max(...pts.map(q => q[1]))];
+          drawRing(true); update(); })
+        .catch(e => { delete ISO[k]; if (drive !== d) return; d.err = (e && e.message) || "the drive-time service did not answer"; update(); });
+    }
+    if (drive.rings) pinRing = L.geoJSON(drive.f, {style: sty, interactive: false}).addTo(map);
+  }
+  if (fit && pinRing) map.fitBounds(pinRing.getBounds(), {animate: false});
+}
+const pinLabel = () => !isDrive() ? `${S.km} km of pin` : drive && drive.rings ? `${driveMin()} min drive of pin`
+  : drive && drive.err ? `drive time failed: ${esc(drive.err)}` : "working out the drive time…";
 const PinCtl = L.Control.extend({onAdd() {
   const d = L.DomUtil.create("div", "pinbox");
-  d.innerHTML = `<button id="pinbtn" type="button" title="Click, then click the map: only forests within the distance are counted">Drop a pin</button>
-    <select id="pinkm" aria-label="Distance">${[10, 25, 50, 100, 150].map(k => `<option value="${k}">${k} km</option>`).join("")}</select>
+  d.innerHTML = `<button id="pinbtn" type="button" title="Click, then click the map: only forests within the distance or drive time are counted">Drop a pin</button>
+    <select id="pinkm" aria-label="Distance or drive time"><optgroup label="Distance">${[10, 25, 50, 100, 150].map(k => `<option value="${k}">${k} km</option>`).join("")}</optgroup>
+      <optgroup label="Drive time">${[15, 30, 45, 60].map(k => `<option value="d${k}">${k} min drive</option>`).join("")}</optgroup></select>
     <button id="pinclear" type="button" hidden title="Remove the pin">✕</button>`;
   L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
   return d; }});
 new PinCtl({position: "topleft"}).addTo(map);
 $("pinkm").value = String(S.km);
 $("pinbtn").addEventListener("click", () => { pinning = !pinning; $("pinbtn").classList.toggle("on", pinning); map.getContainer().style.cursor = pinning ? "crosshair" : ""; });
-$("pinkm").addEventListener("change", () => { S.km = +$("pinkm").value; if (S.pin) { pinRing.setRadius(S.km * 1000); update(); } });
+$("pinkm").addEventListener("change", () => { const v = $("pinkm").value; S.km = v[0] === "d" ? v : +v; if (S.pin) { drawRing(); update(); } });
 $("pinclear").addEventListener("click", () => { setPin(null); update(); });
 map.on("click", e => { if (!pinning) return; pinning = false; $("pinbtn").classList.remove("on"); map.getContainer().style.cursor = ""; setPin(e.latlng); update(); });
 
@@ -295,7 +336,7 @@ function drawLegend() {
 const LIST_MAX = 200;
 function summary() {
   const ha = shown.reduce((s, b) => s + b.ha, 0);
-  $("sum").innerHTML = `<b>${fmt(shown.length)}</b> forests · <b>${fmt(ha)}</b> ha${S.pin ? ` · ${S.km} km of pin` : ""}`;
+  $("sum").innerHTML = `<b>${fmt(shown.length)}</b> forests · <b>${fmt(ha)}</b> ha${S.pin ? ` · ${pinLabel()}` : ""}`;
   const due = HG.map((_, i) => shown.reduce((s, b) => s + (b.k === 0 ? b.hg[i] : 0), 0)), top = Math.max(...due, 1);
   $("pipe").innerHTML = due.some(v => v) ? `<div class="ph">Plantation harvest due, ha (click to filter)</div>` + HG.map((n, i) =>
     `<div class="pr${S.due === String(i) ? " on" : ""}" data-due="${i}"><span class="pl">${n}</span><span class="pb"><span style="width:${due[i] / top * 100}%;background:${C.hg[i]}"></span></span><span class="pn">${fmt(due[i])}</span></div>`).join("") : "";
@@ -331,19 +372,20 @@ function listManagers() {
       a.ha += size(b); a.n++; a.likely += lk; a.bs.push([b, lk ? forest.slice(1) : forest, lk]);
     }
   }
+  for (const f of S.fm) if (!agg.has(f)) agg.set(f, {name: f, F: MG_BY[f] && MG_BY[f].name === f ? MG_BY[f] : null, ha: 0, n: 0, likely: 0, bs: []});   // picked, none match now: keep it to untick
   const fs = [...agg.values()].filter(a => a.ha > 0 || per < 0 || S.fm.includes(a.name)).sort((x, y) => S.fm.includes(y.name) - S.fm.includes(x.name) || y.ha - x.ha);
-  const noBlock = MG.firms.filter(F => !agg.has(F.name) && (!reg || F.reg.includes(reg)) && (!w.length || w.every(x => F.text.includes(x))));
+  const noBlock = UNPLACED.filter(F => (!reg || F.reg.includes(reg)) && (!w.length || w.every(x => F.text.includes(x))));
   const what = per >= 0 ? "ha due " + HG[per].replace(/^Due /, "").replace(/^Felled /, "felled ") : "ha";
   return (fs.length ? (S.fm.length ? `<div class="tip picks"><span>Map shows ${S.fm.length === 1 ? "only this firm" : "only these " + S.fm.length + " firms"}. Tick more to add.</span><button class="lnk" type="button" data-unpick="1">Show all</button></div>`
-      : `<div class="tip">${fmt(fs.length)} firms with forests that match the filters, ${what} on the map. Tick firms to show only theirs; tick more to add.</div>`) +
+      : `<div class="tip">${fmt(fs.length)} firms with forests that match the filters, ${what} on the map. Tick a box to show only that firm's forests (tick more to add); click a name for its forests.</div>`) +
     fs.map(a => {
-      const F = a.F, open = S.fm.includes(a.name);
+      const F = a.F, on = S.fm.includes(a.name), open = openFirms.has(a.name);
       const tags = (F && F.fsc ? `<span class="tag fsc">FSC</span>` : "") + (F && F.chg && /^yes/i.test(F.chg) ? `<span class="tag chg">owner changed</span>`
-        : F && F.year && +F.year < 2025 ? `<span class="tag old">${F.year}</span>` : "") + (a.likely === a.n ? `<span class="tag old">likely</span>` : "");
-      const sub = F ? (F.own || "Owner not stated") + (F.year ? " · as at " + F.year : "")
+        : F && F.year && +F.year < 2025 ? `<span class="tag old">${F.year}</span>` : "") + (a.n && a.likely === a.n ? `<span class="tag old">likely</span>` : "");
+      const sub = !a.n ? "No forests match the other filters" : F ? (F.own || "Owner not stated") + (F.year ? " · as at " + F.year : "")
         : `Found by research · ${a.n} forest${a.n > 1 ? "s" : ""}${a.likely && a.likely < a.n ? `, ${a.likely} likely` : ""}`;
       a.bs.sort((x, y) => size(y[0]) - size(x[0]));
-      return `<div class="it${open ? " open" : ""}" data-f="${esc(a.name)}"><span class="tick" role="checkbox" aria-checked="${open}">${open ? "✓" : ""}</span>
+      return `<div class="it${open ? " open" : ""}${on ? " on" : ""}" data-f="${esc(a.name)}"><span class="chev">${open ? "▾" : "▸"}</span><span class="pk" data-pick="${esc(a.name)}" title="Show only ticked firms on the map"><span class="tick" role="checkbox" aria-checked="${on}">${on ? "✓" : ""}</span></span>
         <span class="m"><div class="t">${esc(F ? F.short || F.name : a.name)}${tags}</div><div class="s">${esc(sub)}</div></span>
         <span class="n">${fmt(a.ha)} ha</span></div>` +
         (open ? `<div class="kids">${F && F.chg && F.chg !== "no" ? `<div class="kidsrc"><b>${/^yes/i.test(F.chg) ? "Changed since the list" : "Note"}:</b> ${esc(F.chg.replace(/^(yes|no): /i, ""))}</div>` : ""}` +
@@ -374,7 +416,9 @@ $("list").addEventListener("click", e => {
   if (e.target.closest("[data-unpick]")) { S.fm = []; update(); return; }
   const it = e.target.closest(".it, .kid[data-b]"); if (!it) return;
   if (it.dataset.b) { const b = blocks.find(x => x.id === +it.dataset.b); if (b) pick(b, true); }
-  if (it.dataset.f) { const f = it.dataset.f; S.fm = S.fm.includes(f) ? S.fm.filter(x => x !== f) : [...S.fm, f]; update(); fitShown(); }
+  const pk = e.target.closest("[data-pick]");
+  if (pk) { const f = pk.dataset.pick; S.fm = S.fm.includes(f) ? S.fm.filter(x => x !== f) : [...S.fm, f]; update(); fitShown(); return; }   // tick: pick only
+  if (it.dataset.f) { const f = it.dataset.f; openFirms.has(f) ? openFirms.delete(f) : openFirms.add(f); drawList(); }               // row: open its forests
 });
 map.on("moveend", () => { if (S.tab !== "managers") drawList(); });
 let standsZ = null;
@@ -421,5 +465,5 @@ function whenSized(go) {                           // a map box not yet sized (h
 $("q").value = S.q; fillDistricts();
 if (S.pin) setPin(L.latLng(S.pin[0], S.pin[1]));
 update(S.region >= 0 || S.district >= 0);
-if (S.pin) whenSized(() => map.fitBounds(pinRing.getBounds(), {animate: false}));
+if (S.pin && pinRing) whenSized(() => map.fitBounds(pinRing.getBounds(), {animate: false}));   // a drive area fits itself when it arrives
 })().catch(e => { document.getElementById("list").innerHTML = `<div class="more">The map could not load: ${String(e.message || e)}</div>`; console.error(e); });
