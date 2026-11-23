@@ -28,7 +28,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 26;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 27;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
@@ -36,7 +36,7 @@ const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
 const R = B.regions, D = B.districts, blocks = B.blocks, HG = B.harvest;
 const SHORT = Object.fromEntries(MG.firms.map(F => [F.name, F.short || F.name]));
 blocks.forEach(b => {
-  b.rm = b.rm || [];                    // [firm, forest, sure, source]: hand research on 1,000 ha+ blocks no list named
+  b.rm = b.rm || [];                    // [firm, forest, sure, source]: hand research (+ Crown-licence rule) on blocks no list named
   b.mgr = b.mg.length ? "named" : b.rm.length ? "found" : b.cfl ? "cfl" : "none";
   b.firms = [...new Set([...b.mg.map(m => SHORT[m[0]]), ...(b.rm.length ? [b.rm[0] + (b.rm[2] ? "" : " (likely)")] : [])])];
   b.nfc = b.k !== 0 ? "" : b.nf[1] >= b.ha / 4 ? "recent" : b.nf[0] >= b.ha / 2 ? "most" : enough(b.nf[0], b, 50) ? "part" : "old";   // by share, so one new corner does not colour a big old forest
@@ -211,7 +211,7 @@ function blockCard(b) {
   const mgrRow = b.mg.length ? `<div class="s" style="margin-top:6px">Manager's list names here</div>${Object.entries(byFirm).map(([f, ns]) =>
     `<div><b>${esc(f)}</b> <span class="s">${esc(ns.join(", "))}</span></div>`).join("")}`
     : b.rm.length ? "" : `<div class="s" style="margin-top:6px">Not matched to a manager's list${b.cfl ? " (has a Crown forest licence)" : ""}</div>`;
-  const resRow = b.rm.length ? `<div class="s" style="margin-top:6px">${b.rm[2] ? "Manager (found by research)" : "Likely manager (found by research, not confirmed)"}</div>
+  const resRow = b.rm.length ? `<div class="s" style="margin-top:6px">${/\(owner/.test(b.rm[0]) ? (b.rm[2] ? "Owner (found by research)" : "Likely owner (found by research, not confirmed)") : b.rm[2] ? "Manager (found by research)" : "Likely manager (found by research, not confirmed)"}</div>
     <div><b>${esc(b.rm[0])}</b>${b.rm[1] ? ` <span class="s">${esc(b.rm[1])}</span>` : ""}${b.rm[3] ? ` <a class="s" href="${esc(b.rm[3])}" target="_blank" rel="noopener">source</a>` : ""}</div>` : "";
   const extra = [b.fr ? `${b.fr} with a forestry right` : "", b.cfl ? `${b.cfl} Crown forest licence` : ""].filter(Boolean).join(", ");
   const rows = [["Land titles", fmt(b.t) + (extra ? ` <span class="s">(${extra})</span>` : "")],
