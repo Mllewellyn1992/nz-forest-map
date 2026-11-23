@@ -28,7 +28,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 28;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 29;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
@@ -303,25 +303,51 @@ function listBlocks() {
     (v.length > LIST_MAX ? `<div class="more">+ ${fmt(v.length - LIST_MAX)} more: zoom in or filter</div>` : "");
 }
 const openFirms = new Set();
+// research names that are the same firm as a manager's own list (the rest stand on their own)
+const RM_ALIAS = {"OneFortyOne": "OneFortyOne New Zealand Limited", "Juken NZ (JNL)": "Juken New Zealand Limited", "Pan Pac": "Pan Pac Forest Products Limited",
+  "Kaingaroa Tipu (Timberlands)": "Timberlands Limited (Kaingaroa Tipu)", "West Coast Forests LP": "West Coast Forests Limited Partnership",
+  "Wenita": "Wenita Forest Products Limited", "Crown Forestry (Te Uru Rākau)": "Crown Forestry (Te Uru Rakau)"};
+const MG_BY = {};
+MG.firms.forEach(F => { MG_BY[F.name] = F; MG_BY[F.short || F.name] = MG_BY[F.short || F.name] || F; });
+const rmFirm = n => RM_ALIAS[n] || (MG_BY[n] ? MG_BY[n].name : n);
+// Managers tab: every firm with a forest that passes the filters (manager's list, research or Crown-licence rule),
+// biggest by mapped ha (or ha due in the picked period); firms on a list whose forests are not placed follow, named only
 function listManagers() {
-  const reg = S.region >= 0 ? R[S.region] : null, w = words();
-  const fs = MG.firms.filter(F => (!reg || F.reg.includes(reg)) && (!w.length || w.every(x => F.text.includes(x))));
-  return (fs.length ? `<div class="tip">${reg ? "Firms with forests in " + esc(reg) : "All firms"}, biggest first. Click one for its forests.</div>` +
-    fs.map(F => {
-      const open = openFirms.has(F.name);
-      const tags = (F.fsc ? `<span class="tag fsc">FSC</span>` : "") + (F.chg && /^yes/i.test(F.chg) ? `<span class="tag chg">owner changed</span>`
-        : F.year && +F.year < 2025 ? `<span class="tag old">${F.year}</span>` : "");
-      const rows = F.rows.filter(x => !reg || x.reg.includes(reg));
-      return `<div class="it${open ? " open" : ""}" data-f="${esc(F.name)}"><span class="chev">${open ? "▾" : "▸"}</span>
-        <span class="m"><div class="t">${esc(F.short || F.name)}${tags}</div>
-        <div class="s">${esc(F.own || "Owner not stated")}${F.year ? " · as at " + F.year : ""}</div></span>
-        <span class="n">${F.ha ? fmt(F.ha) + " ha" : ""}</span></div>` +
-        (open ? `<div class="kids">${F.chg && F.chg !== "no" ? `<div class="kidsrc"><b>${/^yes/i.test(F.chg) ? "Changed since the list" : "Note"}:</b> ${esc(F.chg.replace(/^(yes|no): /i, ""))}</div>` : ""}` +
-          rows.slice(0, 60).map(x => `<div class="kid"><span>${x.src && x.src.startsWith("http") ? `<a href="${esc(x.src.split(" ")[0])}" target="_blank" rel="noopener">${esc(x.n)}</a>` : esc(x.n)}
-            <span class="w"> · ${esc(x.where)}</span></span><span>${x.hat && /^\d+(\.\d+)?$/.test(x.hat) ? fmt(+x.hat) : esc(x.hat || "")}</span></div>`).join("") +
-          `<div class="kidsrc">${F.fsc ? `FSC certified ${fmt(F.fsc)} ha · <a href="${esc(F.fscu)}" target="_blank" rel="noopener">certificate</a>` : ""}
-            ${F.src ? ` · <a href="${esc(F.src)}" target="_blank" rel="noopener">owner source</a>` : ""}</div></div>` : "");
-    }).join("") : `<div class="more">No firms ${reg ? "listed in " + esc(reg) : "match"}.</div>`) + listLocal(reg, w);
+  const reg = S.region >= 0 ? R[S.region] : null, w = words(), per = S.due !== "" ? +S.due : -1;
+  const size = b => per >= 0 ? b.hg[per] : b.ha, agg = new Map();
+  for (const b of shown) {
+    const fs = new Map();
+    b.mg.forEach(m => fs.set(m[0], fs.has(m[0]) ? fs.get(m[0]) + " / " + m[1] : m[1]));   // one block can hold several of a firm's named forests
+    if (b.rm.length && !fs.has(rmFirm(b.rm[0]))) fs.set(rmFirm(b.rm[0]), (b.rm[2] ? "" : "\u0000") + (b.rm[1] || ""));   // \0 marks "likely"
+    for (const [f, forest] of fs) {
+      const a = agg.get(f) || agg.set(f, {name: f, F: MG_BY[f] && MG_BY[f].name === f ? MG_BY[f] : null, ha: 0, n: 0, likely: 0, bs: []}).get(f);
+      const lk = forest.startsWith("\u0000");
+      a.ha += size(b); a.n++; a.likely += lk; a.bs.push([b, lk ? forest.slice(1) : forest, lk]);
+    }
+  }
+  const fs = [...agg.values()].filter(a => a.ha > 0 || per < 0).sort((x, y) => y.ha - x.ha);
+  const noBlock = MG.firms.filter(F => !agg.has(F.name) && (!reg || F.reg.includes(reg)) && (!w.length || w.every(x => F.text.includes(x))));
+  const what = per >= 0 ? "ha due " + HG[per].replace(/^Due /, "").replace(/^Felled /, "felled ") : "ha";
+  return (fs.length ? `<div class="tip">${fmt(fs.length)} firms with forests that match the filters, ${what} on the map, biggest first. Click one for its forests.</div>` +
+    fs.map(a => {
+      const F = a.F, open = openFirms.has(a.name);
+      const tags = (F && F.fsc ? `<span class="tag fsc">FSC</span>` : "") + (F && F.chg && /^yes/i.test(F.chg) ? `<span class="tag chg">owner changed</span>`
+        : F && F.year && +F.year < 2025 ? `<span class="tag old">${F.year}</span>` : "") + (a.likely === a.n ? `<span class="tag old">likely</span>` : "");
+      const sub = F ? (F.own || "Owner not stated") + (F.year ? " · as at " + F.year : "")
+        : `Found by research · ${a.n} forest${a.n > 1 ? "s" : ""}${a.likely && a.likely < a.n ? `, ${a.likely} likely` : ""}`;
+      a.bs.sort((x, y) => size(y[0]) - size(x[0]));
+      return `<div class="it${open ? " open" : ""}" data-f="${esc(a.name)}"><span class="chev">${open ? "▾" : "▸"}</span>
+        <span class="m"><div class="t">${esc(F ? F.short || F.name : a.name)}${tags}</div><div class="s">${esc(sub)}</div></span>
+        <span class="n">${fmt(a.ha)} ha</span></div>` +
+        (open ? `<div class="kids">${F && F.chg && F.chg !== "no" ? `<div class="kidsrc"><b>${/^yes/i.test(F.chg) ? "Changed since the list" : "Note"}:</b> ${esc(F.chg.replace(/^(yes|no): /i, ""))}</div>` : ""}` +
+          a.bs.slice(0, 60).map(([b, forest, lk]) => `<div class="kid" data-b="${b.id}" style="cursor:pointer"><span>${esc(forest || D[b.d] || R[b.r] || "Forest")}
+            <span class="w"> · ${esc(D[b.d] || R[b.r] || "")}${lk ? " · likely" : ""}</span></span><span>${fmt(size(b))}</span></div>`).join("") +
+          (a.bs.length > 60 ? `<div class="kidsrc">+ ${fmt(a.bs.length - 60)} more: filter to see them</div>` : "") +
+          (F ? `<div class="kidsrc">${F.fsc ? `FSC certified ${fmt(F.fsc)} ha · <a href="${esc(F.fscu)}" target="_blank" rel="noopener">certificate</a>` : ""}
+            ${F.src ? ` · <a href="${esc(F.src)}" target="_blank" rel="noopener">owner source</a>` : ""}</div>` : "") + `</div>` : "");
+    }).join("") : `<div class="more">No firms match these filters.</div>`) +
+    (noBlock.length ? `<div class="tip" style="margin-top:10px">Also on managers' lists, forests not placed on the map: ${noBlock.map(F => esc(F.short || F.name)).join(", ")}</div>` : "") +
+    listLocal(reg, w);
 }
 function listLocal(reg, w) {
   const ls = LOCAL.filter(x => (!reg || x.r === reg) && (!w.length || w.every(y => x.text.includes(y))));
@@ -338,7 +364,7 @@ function drawList() {
 }
 $("list").addEventListener("click", e => {
   if (e.target.closest("a")) return;
-  const it = e.target.closest(".it"); if (!it) return;
+  const it = e.target.closest(".it, .kid[data-b]"); if (!it) return;
   if (it.dataset.b) { const b = blocks.find(x => x.id === +it.dataset.b); if (b) pick(b, true); }
   if (it.dataset.f) { const f = it.dataset.f; openFirms.has(f) ? openFirms.delete(f) : openFirms.add(f); drawList(); }
 });
