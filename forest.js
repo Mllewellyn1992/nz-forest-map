@@ -28,7 +28,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 32;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 34;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
@@ -206,6 +206,15 @@ const colourOf = b => S.colour === "due" ? (dueOn() ? C.hg[+S.due] : b.step >= 0
   : S.colour === "mgr" ? C.mgr[b.mgr] : S.colour === "nf" ? (b.nfc ? C.nf[b.nfc] : VIZ.none) : C.kind[b.k];
 
 // ------------------------------------------------------------------ drawing
+// hover label: what the colour means for this forest (Mike 2026-11-24: Manager view shows the manager, not the district)
+function tipOf(b) {
+  const what = S.colour === "mgr" ? (b.firms.length ? b.firms.join(", ") : MGR[b.mgr])
+    : S.colour === "nf" ? (b.nfc ? NF[b.nfc] : KIND[b.k])
+    : S.colour === "kind" ? KIND[b.k]
+    : b.k !== 0 ? KIND[b.k] : dueOn() ? `${fmt(b.hg[+S.due])} ha ${HG[+S.due].replace(/^Due /, "due ").replace(/^Felled/, "felled").replace(/^(\d)/, "due $1")}`
+    : `${fmt(b.soon)} ha due by 2033`;
+  return `<b>${esc(what)}</b><br>${fmt(b.ha)} ha · ${esc(D[b.d] || "")}`;
+}
 let picked = null, shown = [];
 function styleOf(b) {
   const c = colourOf(b), sel = picked === b;
@@ -215,7 +224,7 @@ function styleOf(b) {
 function shapeOf(b) {
   if (!b.layer) {
     b.layer = L.polygon(b.g.map(poly => poly.map(unring)), styleOf(b));
-    b.layer.bindTooltip(() => `${fmt(b.ha)} ha · ${esc(D[b.d] || "")}`, {sticky: true, direction: "top", opacity: .95});
+    b.layer.bindTooltip(() => tipOf(b), {sticky: true, direction: "top", opacity: .95});
     b.layer.on("click", e => { L.DomEvent.stopPropagation(e); if (pinning) { map.fire("click", {latlng: e.latlng}); return; } pick(b, false); });
   }
   return b.layer;
