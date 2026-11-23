@@ -28,7 +28,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 29;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 30;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
@@ -58,6 +58,14 @@ MG.firms.forEach(F => {
   F.year = (String(F.asof || "").match(/\d{4}/) || [""])[0];
 });
 MG.firms.sort((a, b) => b.ha - a.ha);
+// research names that are the same firm as a manager's own list (the rest stand on their own)
+const RM_ALIAS = {"OneFortyOne": "OneFortyOne New Zealand Limited", "Juken NZ (JNL)": "Juken New Zealand Limited", "Pan Pac": "Pan Pac Forest Products Limited",
+  "Kaingaroa Tipu (Timberlands)": "Timberlands Limited (Kaingaroa Tipu)", "West Coast Forests LP": "West Coast Forests Limited Partnership",
+  "Wenita": "Wenita Forest Products Limited", "Crown Forestry (Te Uru Rākau)": "Crown Forestry (Te Uru Rakau)"};
+const MG_BY = {};
+MG.firms.forEach(F => { MG_BY[F.name] = F; MG_BY[F.short || F.name] = MG_BY[F.short || F.name] || F; });
+const rmFirm = n => RM_ALIAS[n] || (MG_BY[n] ? MG_BY[n].name : n);
+blocks.forEach(b => { b.fk = new Set([...b.mg.map(m => m[0]), ...(b.rm.length ? [rmFirm(b.rm[0])] : [])]); });   // firms named on each block (for the firm pick)
 // local forestry firms Google Maps lists in each region (managers, silviculture, logging crews, sawmills)
 const LOCAL = (MG.local || []).map(([n, t, town, ph, web, r]) => ({n, t, town, ph, web, r, text: [n, t, town, r].join(" ").toLowerCase()}));
 const LOCAL_TYPES = ["Forestry services", "Logging / harvesting", "Sawmill"];
@@ -113,7 +121,7 @@ function syncStands() {
 
 // ------------------------------------------------------------------ state (kept in the address bar)
 const S = {};
-const BLANK = {q: "", kind: "", due: "", region: -1, district: -1, size: "", mgr: "", nf: "", colour: "due", tab: "blocks", pin: null, km: 25};
+const BLANK = {q: "", kind: "", due: "", region: -1, district: -1, size: "", mgr: "", nf: "", colour: "due", tab: "blocks", pin: null, km: 25, fm: []};
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   Object.assign(S, BLANK);
@@ -121,10 +129,12 @@ function readHash() {
   for (const k of ["region", "district", "km"]) if (p.has(k)) S[k] = +p.get(k);
   if (!["blocks", "managers"].includes(S.tab)) S.tab = "blocks";
   S.pin = p.get("pin") ? p.get("pin").split(",").map(Number) : null;
+  S.fm = p.get("fm") ? p.get("fm").split("|") : [];          // firms picked in the Managers tab
 }
 function writeHash() {
   const p = new URLSearchParams();
   for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "region", "district"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
+  if (S.fm.length) p.set("fm", S.fm.join("|"));
   if (S.pin) { p.set("pin", S.pin.map(v => v.toFixed(4)).join(",")); p.set("km", S.km); }
   history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
 }
@@ -164,7 +174,8 @@ document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click
 const DUE_MIN = 50;                   // a block counts for a harvest period when 50 ha+ (or a quarter of a small block) falls in it
 const near = ll => S.pin && map.distance(L.latLng(S.pin[0], S.pin[1]), ll) <= S.km * 1000;
 const words = () => S.q.toLowerCase().split(/\s+/).filter(Boolean);
-function passes(b) {
+function passes(b, anyFirm) {
+  if (!anyFirm && S.fm.length && !S.fm.some(f => b.fk.has(f))) return false;
   if (S.kind !== "" && b.k !== +S.kind) return false;
   if (S.region >= 0 && b.r !== S.region) return false;
   if (S.district >= 0 && b.d !== S.district) return false;
@@ -199,7 +210,7 @@ function shapeOf(b) {
 }
 function draw() {
   forestLayer.clearLayers();
-  shown = blocks.filter(passes);
+  shown = blocks.filter(b => passes(b));         // not filter(passes): the index would land in anyFirm
   shown.forEach(b => { const l = shapeOf(b); l.setStyle(styleOf(b)); forestLayer.addLayer(l); });
 }
 
@@ -302,20 +313,15 @@ function listBlocks() {
       <span class="n">${fmt(b.ha)} ha</span></div>`).join("") +
     (v.length > LIST_MAX ? `<div class="more">+ ${fmt(v.length - LIST_MAX)} more: zoom in or filter</div>` : "");
 }
-const openFirms = new Set();
-// research names that are the same firm as a manager's own list (the rest stand on their own)
-const RM_ALIAS = {"OneFortyOne": "OneFortyOne New Zealand Limited", "Juken NZ (JNL)": "Juken New Zealand Limited", "Pan Pac": "Pan Pac Forest Products Limited",
-  "Kaingaroa Tipu (Timberlands)": "Timberlands Limited (Kaingaroa Tipu)", "West Coast Forests LP": "West Coast Forests Limited Partnership",
-  "Wenita": "Wenita Forest Products Limited", "Crown Forestry (Te Uru Rākau)": "Crown Forestry (Te Uru Rakau)"};
-const MG_BY = {};
-MG.firms.forEach(F => { MG_BY[F.name] = F; MG_BY[F.short || F.name] = MG_BY[F.short || F.name] || F; });
-const rmFirm = n => RM_ALIAS[n] || (MG_BY[n] ? MG_BY[n].name : n);
+function fitShown() {                               // after a firm pick: frame that firm's forests (all NZ for a big estate)
+  if (S.fm.length && shown.length) map.fitBounds(L.latLngBounds(shown.map(b => [b.ll.lat, b.ll.lng < 0 ? b.ll.lng + 360 : b.ll.lng])), {padding: [30, 30], maxZoom: 11, animate: false});   // Chathams sit past 180°
+}
 // Managers tab: every firm with a forest that passes the filters (manager's list, research or Crown-licence rule),
 // biggest by mapped ha (or ha due in the picked period); firms on a list whose forests are not placed follow, named only
 function listManagers() {
   const reg = S.region >= 0 ? R[S.region] : null, w = words(), per = S.due !== "" ? +S.due : -1;
   const size = b => per >= 0 ? b.hg[per] : b.ha, agg = new Map();
-  for (const b of shown) {
+  for (const b of S.fm.length ? blocks.filter(b => passes(b, true)) : shown) {
     const fs = new Map();
     b.mg.forEach(m => fs.set(m[0], fs.has(m[0]) ? fs.get(m[0]) + " / " + m[1] : m[1]));   // one block can hold several of a firm's named forests
     if (b.rm.length && !fs.has(rmFirm(b.rm[0]))) fs.set(rmFirm(b.rm[0]), (b.rm[2] ? "" : "\u0000") + (b.rm[1] || ""));   // \0 marks "likely"
@@ -325,18 +331,19 @@ function listManagers() {
       a.ha += size(b); a.n++; a.likely += lk; a.bs.push([b, lk ? forest.slice(1) : forest, lk]);
     }
   }
-  const fs = [...agg.values()].filter(a => a.ha > 0 || per < 0).sort((x, y) => y.ha - x.ha);
+  const fs = [...agg.values()].filter(a => a.ha > 0 || per < 0 || S.fm.includes(a.name)).sort((x, y) => S.fm.includes(y.name) - S.fm.includes(x.name) || y.ha - x.ha);
   const noBlock = MG.firms.filter(F => !agg.has(F.name) && (!reg || F.reg.includes(reg)) && (!w.length || w.every(x => F.text.includes(x))));
   const what = per >= 0 ? "ha due " + HG[per].replace(/^Due /, "").replace(/^Felled /, "felled ") : "ha";
-  return (fs.length ? `<div class="tip">${fmt(fs.length)} firms with forests that match the filters, ${what} on the map, biggest first. Click one for its forests.</div>` +
+  return (fs.length ? (S.fm.length ? `<div class="tip picks"><span>Map shows ${S.fm.length === 1 ? "only this firm" : "only these " + S.fm.length + " firms"}. Tick more to add.</span><button class="lnk" type="button" data-unpick="1">Show all</button></div>`
+      : `<div class="tip">${fmt(fs.length)} firms with forests that match the filters, ${what} on the map. Tick firms to show only theirs; tick more to add.</div>`) +
     fs.map(a => {
-      const F = a.F, open = openFirms.has(a.name);
+      const F = a.F, open = S.fm.includes(a.name);
       const tags = (F && F.fsc ? `<span class="tag fsc">FSC</span>` : "") + (F && F.chg && /^yes/i.test(F.chg) ? `<span class="tag chg">owner changed</span>`
         : F && F.year && +F.year < 2025 ? `<span class="tag old">${F.year}</span>` : "") + (a.likely === a.n ? `<span class="tag old">likely</span>` : "");
       const sub = F ? (F.own || "Owner not stated") + (F.year ? " · as at " + F.year : "")
         : `Found by research · ${a.n} forest${a.n > 1 ? "s" : ""}${a.likely && a.likely < a.n ? `, ${a.likely} likely` : ""}`;
       a.bs.sort((x, y) => size(y[0]) - size(x[0]));
-      return `<div class="it${open ? " open" : ""}" data-f="${esc(a.name)}"><span class="chev">${open ? "▾" : "▸"}</span>
+      return `<div class="it${open ? " open" : ""}" data-f="${esc(a.name)}"><span class="tick" role="checkbox" aria-checked="${open}">${open ? "✓" : ""}</span>
         <span class="m"><div class="t">${esc(F ? F.short || F.name : a.name)}${tags}</div><div class="s">${esc(sub)}</div></span>
         <span class="n">${fmt(a.ha)} ha</span></div>` +
         (open ? `<div class="kids">${F && F.chg && F.chg !== "no" ? `<div class="kidsrc"><b>${/^yes/i.test(F.chg) ? "Changed since the list" : "Note"}:</b> ${esc(F.chg.replace(/^(yes|no): /i, ""))}</div>` : ""}` +
@@ -364,9 +371,10 @@ function drawList() {
 }
 $("list").addEventListener("click", e => {
   if (e.target.closest("a")) return;
+  if (e.target.closest("[data-unpick]")) { S.fm = []; update(); return; }
   const it = e.target.closest(".it, .kid[data-b]"); if (!it) return;
   if (it.dataset.b) { const b = blocks.find(x => x.id === +it.dataset.b); if (b) pick(b, true); }
-  if (it.dataset.f) { const f = it.dataset.f; openFirms.has(f) ? openFirms.delete(f) : openFirms.add(f); drawList(); }
+  if (it.dataset.f) { const f = it.dataset.f; S.fm = S.fm.includes(f) ? S.fm.filter(x => x !== f) : [...S.fm, f]; update(); fitShown(); }
 });
 map.on("moveend", () => { if (S.tab !== "managers") drawList(); });
 let standsZ = null;
