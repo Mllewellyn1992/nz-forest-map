@@ -21,13 +21,13 @@ const KIND = ["Plantation", "Mānuka / kānuka"];
 // default harvest colour: how much of each block is due by 2033 (a share, so one giant block does not hide its near-term part)
 const SOON_STEPS = [0, .1, .25, .5], SOON_TEXT = ["Under 10%", "10-25%", "25-50%", "Half or more"];
 const MGR = {named: "In a manager's list", cfl: "Crown forest licence", none: "Not matched"};
-// forest on land that was farmland or scrub on the first land-cover map (1996) = post-1989 forest land (carbon-scheme land)
-const NF = {recent: "A quarter+ planted on farmland 2018-23", most: "Mostly ex-farmland (since 1996)", part: "Partly ex-farmland", old: "Forest land before 1996"};
-const NF_FILTER = {post: "Ex-farmland, planted since 1996", recent: "Planted on farmland 2018-23"};
+// post-1989 forest land (MfE LUCAS 2020) = land that can earn carbon units in the ETS; plus new planting on farmland 2018-23 (LCDB)
+const NF = {recent: "A quarter+ planted on farmland 2018-23", most: "Mostly post-1989 forest land", part: "Partly post-1989", old: "Pre-1990 forest land"};
+const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2018-23"};
 const SIZES = [["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 16;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 17;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG] = await Promise.all([get("blocks.json"), get("managers.json")]);
@@ -91,7 +91,7 @@ $("f-region").innerHTML = opts("All NZ", R.map((t, i) => [i, t]));
 $("f-size").innerHTML = opts("Any size", SIZES.map((s, i) => [i, s[0]]));
 $("f-mgr").innerHTML = opts("Any", Object.entries(MGR));
 $("f-nf").innerHTML = opts("Any", Object.entries(NF_FILTER));
-$("f-colour").innerHTML = [["due", "Harvest"], ["mgr", "Manager"], ["nf", "Ex-farm"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("");
+$("f-colour").innerHTML = [["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("");
 function fillDistricts() {
   $("disbox").hidden = S.region < 0;
   const used = new Set(blocks.filter(b => b.r === S.region).map(b => b.d));
@@ -170,7 +170,7 @@ function blockCard(b) {
     b.mao ? ["Māori land", fmt(b.mao) + " ha"] : null, b.con ? ["Conservation land", fmt(b.con) + " ha"] : null].filter(Boolean);
   return `<div class="card"><h3>${esc(KIND[b.k])} · ${fmt(b.ha)} ha</h3>
     <div class="s">${esc(D[b.d] || "")}${b.r >= 0 ? ", " + esc(R[b.r]) : ""}</div>
-    ${ageRows}${b.k === 0 ? mgrRow : ""}${b.k === 0 && b.nf[0] ? `<div class="s" style="margin-top:6px">On farmland or scrub in 1996: <b>${fmt(b.nf[0])} ha</b>${b.nf[1] ? ` (${fmt(b.nf[1])} ha planted 2018-23)` : ""}</div>` : ""}
+    ${ageRows}${b.k === 0 ? mgrRow : ""}${b.k === 0 && b.nf[0] ? `<div class="s" style="margin-top:6px">Post-1989 forest land: <b>${fmt(b.nf[0])} ha</b>${b.nf[1] ? ` (${fmt(b.nf[1])} ha planted 2018-23)` : ""}</div>` : ""}
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</table>
     <div class="links"><a href="https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3" target="_blank" rel="noopener">Satellite view</a>
       ${b.r >= 0 ? `<a href="#" data-managers="${b.r}">Managers in ${esc(R[b.r])}</a>` : ""}</div></div>`;
@@ -290,7 +290,7 @@ $("pipe").addEventListener("click", e => { const r = e.target.closest("[data-due
 
 // ------------------------------------------------------------------ download what is filtered
 $("csv").addEventListener("click", () => {
-  const head = ["block_id", "type", "region", "district", "forest_ha", ...HG.map(a => "ha_" + a.toLowerCase().replace(/[^a-z0-9]+/g, "_")), "manager_lists_naming_a_forest_here", "ha_farmland_in_1996", "ha_planted_on_farmland_2018_23",
+  const head = ["block_id", "type", "region", "district", "forest_ha", ...HG.map(a => "ha_" + a.toLowerCase().replace(/[^a-z0-9]+/g, "_")), "manager_lists_naming_a_forest_here", "ha_post_1989_forest_land_mfe", "ha_planted_on_farmland_2018_23",
     "titles", "largest_titles", "forestry_right_titles", "crown_forest_licence_titles", "maori_land_ha", "conservation_ha",
     "lat", "lon", "satellite"];
   const q = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v;
@@ -310,8 +310,12 @@ function syncControls() {
 }
 function update(zoomTo) {
   syncControls(); draw(); summary(); drawLegend(); drawList(); writeHash();
-  if (zoomTo && shown.length && (S.region >= 0 || S.district >= 0))
-    map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});
+  if (zoomTo && shown.length && (S.region >= 0 || S.district >= 0)) {
+    map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
+    const go = () => map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});
+    if (!map.getSize().x) { const ro = new ResizeObserver(() => { if (map.getSize().x || (map.invalidateSize(false), map.getSize().x)) { ro.disconnect(); go(); } }); ro.observe(map.getContainer()); }
+    else go();
+  }
 }
 $("q").value = S.q; fillDistricts();
 if (S.pin) setPin(L.latLng(S.pin[0], S.pin[1]));

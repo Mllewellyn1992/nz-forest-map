@@ -124,7 +124,7 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
       <label>Size<select id="f-size"></select></label>
       <label id="disbox" class="full" hidden>District<select id="f-district"></select></label>
       <label>Manager<select id="f-mgr"></select></label>
-      <label>Ex-farmland<select id="f-nf"></select></label>
+      <label>Carbon land<select id="f-nf"></select></label>
       <label class="full">Colour by<span class="seg" id="f-colour"></span></label>
     </div>
     <div class="sum"><span id="sum"></span><span class="sp"></span>
@@ -135,7 +135,7 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
       <button data-tab="managers" type="button">Managers</button>
     </div>
     <div id="list"></div>
-    <div class="foot">Data: Manaaki Whenua, LINZ (CC BY 4.0), FSC. Built 23 Nov 2026.</div>
+    <div class="foot">Data: Manaaki Whenua, LINZ, MfE (CC BY 4.0), FSC. Built 23 Nov 2026.</div>
   </aside>
   <div id="map"></div>
 </div>
@@ -144,7 +144,7 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
   <table>
     <tr><td>Forests</td><td>Land cover mapped in 2023/24. Blocks of 50 ha+ only. Plantation total <span id="a-pl"></span> ha (MPI: 1.82m ha).</td></tr>
     <tr><td>Harvest due</td><td>Planting year from the 1996-2023 land-cover maps and satellite felling to 2025 (Global Forest Watch), then scaled so each region's age mix matches MPI's (NEFD). Due = planted + 28 years. An estimate per block, not a harvest plan. Felled 2024-25 = cut in the last two years.</td></tr>
-    <tr><td>Ex-farmland</td><td>Plantation on land that was grass or scrub on the first land-cover map (1996), so post-1989 forest land (the land that can earn carbon units). Planted 2018-23 = farmland in 2018, forest in 2023. Land planted 1990-95 is not picked up.</td></tr>
+    <tr><td>Carbon land</td><td>Post-1989 forest land from MfE's LUCAS 2020 land use map: forest on land that was not forest at the end of 1989, the land that can earn carbon units in the ETS. Planted on farmland 2018-23 = grass or scrub on every land-cover map to 2018, forest in 2023.</td></tr>
     <tr><td>Manager on map</td><td>A firm's named forests placed by LINZ place names. Covers about a third of plantation area, so "Not matched" does not mean no manager.</td></tr>
     <tr><td>Managers</td><td>Each firm's latest public list. The date is on every firm; <span class="tag old">older</span> = before 2025, <span class="tag chg">owner changed</span> = sold since the list.</td></tr>
     <tr><td>FSC</td><td>Current certificates, read 23 Nov 2026.</td></tr>
@@ -156,6 +156,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=16"></script>
+<script src="forest.js?v=18"></script>
 </body>
 </html>
