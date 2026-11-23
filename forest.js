@@ -13,22 +13,22 @@ const VIZ = window.OL_VIZ, dark = VIZ.dark;
 // ------------------------------------------------------------------ colours and names
 const C = dark ? {kind: ["#4cae6c", "#d9ac3a"], hg: ["#e8664c", "#f0a050", "#e8d77a", "#8cc46a", "#3f9a5a", "#a99bd8"],
   soon: ["#4a4237", "#8a6a3a", "#c97a3a", "#f08a5c"],
-  mgr: {named: "#5d9cf0", cfl: "#a487f0", none: "#6d7177"}, nf: {recent: "#f0c04a", most: "#4cae6c", part: "#2f6b45", old: "#6d7177"}, sel: "#ffffff"}
+  mgr: {named: "#5d9cf0", found: "#4cc3b0", cfl: "#a487f0", none: "#6d7177"}, nf: {recent: "#f0c04a", most: "#4cae6c", part: "#2f6b45", old: "#6d7177"}, sel: "#ffffff"}
   : {kind: ["#2d7a46", "#c8901e"], hg: ["#b23a26", "#e0832a", "#dcc24a", "#7fae4a", "#2d6a40", "#7f6fb8"],
   soon: ["#efe3c8", "#e6b46e", "#d0702e", "#9c2f1a"],
-  mgr: {named: "#2f6fde", cfl: "#7a4fd6", none: "#a9aeb5"}, nf: {recent: "#d99a0b", most: "#3f9a5a", part: "#a6cf8f", old: "#c4c8cd"}, sel: "#111418"};
+  mgr: {named: "#2f6fde", found: "#178f7d", cfl: "#7a4fd6", none: "#a9aeb5"}, nf: {recent: "#d99a0b", most: "#3f9a5a", part: "#a6cf8f", old: "#c4c8cd"}, sel: "#111418"};
 const KIND = ["Plantation", "Mānuka / kānuka"];
 // default harvest colour: how much of each block is due by 2033 (a share, so one giant block does not hide its near-term part)
 const enough = (v, b, cap) => v >= Math.min(cap, b.ha / 4);   // "has some X": cap ha, or a quarter of a small block
 const SOON_STEPS = [0, .1, .25, .5], SOON_TEXT = ["Under 10%", "10-25%", "25-50%", "Half or more"];
-const MGR = {named: "In a manager's list", cfl: "Crown forest licence", none: "Not matched"};
+const MGR = {named: "In a manager's list", found: "Manager found by research", cfl: "Crown forest licence", none: "Not matched"};
 // post-1989 forest land (MfE LUCAS 2020) = land that can earn carbon units in the ETS; plus new planting on farmland 2018-23 (LCDB)
 const NF = {recent: "A quarter+ planted on farmland 2018-23", most: "Mostly post-1989 forest land", part: "Partly post-1989", old: "Pre-1990 forest land"};
 const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2018-23"};
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 24;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 25;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
@@ -36,12 +36,13 @@ const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
 const R = B.regions, D = B.districts, blocks = B.blocks, HG = B.harvest;
 const SHORT = Object.fromEntries(MG.firms.map(F => [F.name, F.short || F.name]));
 blocks.forEach(b => {
-  b.mgr = b.mg.length ? "named" : b.cfl ? "cfl" : "none";
-  b.firms = [...new Set(b.mg.map(m => SHORT[m[0]]))];
+  b.rm = b.rm || [];                    // [firm, forest, sure, source]: hand research on 1,000 ha+ blocks no list named
+  b.mgr = b.mg.length ? "named" : b.rm.length ? "found" : b.cfl ? "cfl" : "none";
+  b.firms = [...new Set([...b.mg.map(m => SHORT[m[0]]), ...(b.rm.length ? [b.rm[0] + (b.rm[2] ? "" : " (likely)")] : [])])];
   b.nfc = b.k !== 0 ? "" : b.nf[1] >= b.ha / 4 ? "recent" : b.nf[0] >= b.ha / 2 ? "most" : enough(b.nf[0], b, 50) ? "part" : "old";   // by share, so one new corner does not colour a big old forest
   b.soon = b.hg[0] + b.hg[1];                                  // ha due by 2033: the near-term work
   b.step = b.k === 0 && b.ha ? SOON_STEPS.findLastIndex(t => b.soon / b.ha >= t) : -1;
-  b.text = [R[b.r], D[b.d], b.tt, KIND[b.k], ...b.firms, ...b.mg.map(m => m[1])].join(" ").toLowerCase();
+  b.text = [R[b.r], D[b.d], b.tt, KIND[b.k], ...b.firms, ...b.mg.map(m => m[1]), b.rm[1] || ""].join(" ").toLowerCase();
   b.ll = L.latLng(b.c[0], b.c[1]);
 });
 $("a-pl").textContent = fmt(blocks.filter(b => b.k === 0).reduce((s, b) => s + b.ha, 0));
@@ -206,13 +207,15 @@ function blockCard(b) {
   const byFirm = {}; b.mg.forEach(([f, n]) => (byFirm[SHORT[f]] = byFirm[SHORT[f]] || []).push(n));
   const mgrRow = b.mg.length ? `<div class="s" style="margin-top:6px">Manager's list names here</div>${Object.entries(byFirm).map(([f, ns]) =>
     `<div><b>${esc(f)}</b> <span class="s">${esc(ns.join(", "))}</span></div>`).join("")}`
-    : `<div class="s" style="margin-top:6px">Not matched to a manager's list${b.cfl ? " (has a Crown forest licence)" : ""}</div>`;
+    : b.rm.length ? "" : `<div class="s" style="margin-top:6px">Not matched to a manager's list${b.cfl ? " (has a Crown forest licence)" : ""}</div>`;
+  const resRow = b.rm.length ? `<div class="s" style="margin-top:6px">${b.rm[2] ? "Manager (found by research)" : "Likely manager (found by research, not confirmed)"}</div>
+    <div><b>${esc(b.rm[0])}</b>${b.rm[1] ? ` <span class="s">${esc(b.rm[1])}</span>` : ""}${b.rm[3] ? ` <a class="s" href="${esc(b.rm[3])}" target="_blank" rel="noopener">source</a>` : ""}</div>` : "";
   const extra = [b.fr ? `${b.fr} with a forestry right` : "", b.cfl ? `${b.cfl} Crown forest licence` : ""].filter(Boolean).join(", ");
   const rows = [["Land titles", fmt(b.t) + (extra ? ` <span class="s">(${extra})</span>` : "")],
     b.mao ? ["Māori land", fmt(b.mao) + " ha"] : null, b.con ? ["Conservation land", fmt(b.con) + " ha"] : null].filter(Boolean);
   return `<div class="card"><h3>${esc(KIND[b.k])} · ${fmt(b.ha)} ha</h3>
     <div class="s">${esc(D[b.d] || "")}${b.r >= 0 ? ", " + esc(R[b.r]) : ""}</div>
-    ${ageRows}${b.k === 0 ? mgrRow : ""}${b.k === 0 && b.nf[0] ? `<div class="s" style="margin-top:6px">Post-1989 forest land: <b>${fmt(b.nf[0])} ha</b>${b.nf[1] ? ` (${fmt(b.nf[1])} ha planted 2018-23)` : ""}</div>` : ""}
+    ${ageRows}${b.k === 0 ? mgrRow + resRow : ""}${b.k === 0 && b.nf[0] ? `<div class="s" style="margin-top:6px">Post-1989 forest land: <b>${fmt(b.nf[0])} ha</b>${b.nf[1] ? ` (${fmt(b.nf[1])} ha planted 2018-23)` : ""}</div>` : ""}
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</table>
     <div class="links"><a href="https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3" target="_blank" rel="noopener">Satellite view</a>
       ${b.r >= 0 ? `<a href="#" data-managers="${b.r}">Managers in ${esc(R[b.r])}</a>` : ""}</div></div>`;
@@ -335,11 +338,11 @@ $("pipe").addEventListener("click", e => { const r = e.target.closest("[data-due
 
 // ------------------------------------------------------------------ download what is filtered
 $("csv").addEventListener("click", () => {
-  const head = ["block_id", "type", "region", "district", "forest_ha", ...HG.map(a => "ha_" + a.toLowerCase().replace(/[^a-z0-9]+/g, "_")), "manager_lists_naming_a_forest_here", "ha_post_1989_forest_land_mfe", "ha_planted_on_farmland_2018_23",
+  const head = ["block_id", "type", "region", "district", "forest_ha", ...HG.map(a => "ha_" + a.toLowerCase().replace(/[^a-z0-9]+/g, "_")), "manager_lists_naming_a_forest_here", "manager_found_by_research", "research_confidence", "research_source", "ha_post_1989_forest_land_mfe", "ha_planted_on_farmland_2018_23",
     "titles", "largest_titles", "forestry_right_titles", "crown_forest_licence_titles", "maori_land_ha", "conservation_ha",
     "lat", "lon", "satellite"];
   const q = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v;
-  const rows = shown.slice().sort((a, b) => b.ha - a.ha).map(b => [b.id, KIND[b.k], R[b.r] || "", D[b.d] || "", b.ha, ...b.hg, b.mg.map(m => SHORT[m[0]] + ": " + m[1]).join("; "), b.nf[0], b.nf[1],
+  const rows = shown.slice().sort((a, b) => b.ha - a.ha).map(b => [b.id, KIND[b.k], R[b.r] || "", D[b.d] || "", b.ha, ...b.hg, b.mg.map(m => SHORT[m[0]] + ": " + m[1]).join("; "), b.rm.length ? b.rm[0] + (b.rm[1] ? ": " + b.rm[1] : "") : "", b.rm.length ? (b.rm[2] ? "sure" : "likely") : "", b.rm[3] || "", b.nf[0], b.nf[1],
     b.t, b.tt, b.fr, b.cfl, b.mao, b.con, b.c[0], b.c[1], `https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3`].map(q).join(","));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + [head.join(","), ...rows].join("\r\n")], {type: "text/csv"}));
