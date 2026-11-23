@@ -28,7 +28,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 31;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 32;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
