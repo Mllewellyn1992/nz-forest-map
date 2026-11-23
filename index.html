@@ -115,7 +115,7 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <body>
 <div id="app">
   <aside id="side">
-    <div class="head"><h1>NZ forests, 50 ha+</h1><button class="lnk" id="aboutbtn" type="button">How up to date?</button></div>
+    <div class="head"><h1>NZ forests, 10 ha+</h1><button class="lnk" id="aboutbtn" type="button">How up to date?</button></div>
     <div class="filters">
       <input class="full" type="search" id="q" placeholder="Search a place, title or company">
       <label>Type<select id="f-kind"></select></label>
@@ -142,7 +142,7 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <div id="about" role="dialog" aria-modal="true" aria-labelledby="abouth"><div class="box">
   <h2 id="abouth">How up to date is each part?</h2>
   <table>
-    <tr><td>Forests</td><td>Land cover mapped in 2023/24. Blocks of 50 ha+ only. Plantation total <span id="a-pl"></span> ha (MPI: 1.82m ha).</td></tr>
+    <tr><td>Forests</td><td>Land cover mapped in 2023/24. Blocks of 10 ha+ only. Plantation total <span id="a-pl"></span> ha (MPI: 1.82m ha stocked; the land-cover map also counts felled and unstocked land).</td></tr>
     <tr><td>Harvest due</td><td>Planting year from the 1996-2023 land-cover maps and satellite felling to 2025 (Global Forest Watch), then scaled so each region's age mix matches MPI's (NEFD). Due = planted + 28 years. An estimate per block, not a harvest plan. Felled 2024-25 = cut in the last two years.</td></tr>
     <tr><td>Carbon land</td><td>Post-1989 forest land from MfE's LUCAS 2020 land use map: forest on land that was not forest at the end of 1989, the land that can earn carbon units in the ETS. Planted on farmland 2018-23 = grass or scrub on every land-cover map to 2018, forest in 2023.</td></tr>
     <tr><td>Manager on map</td><td>A firm's named forests placed by LINZ place names. Covers about a third of plantation area, so "Not matched" does not mean no manager.</td></tr>
@@ -156,6 +156,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=18"></script>
+<script src="forest.js?v=20"></script>
 </body>
 </html>

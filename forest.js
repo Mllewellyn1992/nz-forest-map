@@ -1,5 +1,5 @@
 // forest.js - the NZ forest map (ForestMap project, built 2026-11-23 for Pinetech Pacific). Leaflet on canvas with the
-// AquilaLens background (base.js). Data in data/: blocks.json (forest blocks 50 ha+ with outlines), managers.json (one row per forest firm: own list + FSC + owner check).
+// AquilaLens background (base.js). Data in data/: blocks.json (forest blocks 10 ha+ with outlines; was 50 ha+ until 2026-11-23), managers.json (one row per forest firm: own list + FSC + owner check).
 // 2026-11-23 Mike: "less words ... make the filters simple" - dropdowns instead of chip rows, four age groups, one line
 // per firm; overseas (OIO) buys taken off - past buys, today's owner can't be confirmed for free. Filters live in the address bar, so a link opens the same view.
 // 2026-11-23 (later): harvest due per block (planting from land cover, corrected by satellite felling to 2025, + 28 years)
@@ -19,15 +19,16 @@ const C = dark ? {kind: ["#4cae6c", "#d9ac3a"], hg: ["#e8664c", "#f0a050", "#e8d
   mgr: {named: "#2f6fde", cfl: "#7a4fd6", none: "#a9aeb5"}, nf: {recent: "#d99a0b", most: "#3f9a5a", part: "#a6cf8f", old: "#c4c8cd"}, sel: "#111418"};
 const KIND = ["Plantation", "Mānuka / kānuka"];
 // default harvest colour: how much of each block is due by 2033 (a share, so one giant block does not hide its near-term part)
+const enough = (v, b, cap) => v >= Math.min(cap, b.ha / 4);   // "has some X": cap ha, or a quarter of a small block
 const SOON_STEPS = [0, .1, .25, .5], SOON_TEXT = ["Under 10%", "10-25%", "25-50%", "Half or more"];
 const MGR = {named: "In a manager's list", cfl: "Crown forest licence", none: "Not matched"};
 // post-1989 forest land (MfE LUCAS 2020) = land that can earn carbon units in the ETS; plus new planting on farmland 2018-23 (LCDB)
 const NF = {recent: "A quarter+ planted on farmland 2018-23", most: "Mostly post-1989 forest land", part: "Partly post-1989", old: "Pre-1990 forest land"};
 const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2018-23"};
-const SIZES = [["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
+const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 17;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 20;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG] = await Promise.all([get("blocks.json"), get("managers.json")]);
@@ -36,7 +37,7 @@ const SHORT = Object.fromEntries(MG.firms.map(F => [F.name, F.short || F.name]))
 blocks.forEach(b => {
   b.mgr = b.mg.length ? "named" : b.cfl ? "cfl" : "none";
   b.firms = [...new Set(b.mg.map(m => SHORT[m[0]]))];
-  b.nfc = b.k !== 0 ? "" : b.nf[1] >= b.ha / 4 ? "recent" : b.nf[0] >= b.ha / 2 ? "most" : b.nf[0] >= 50 ? "part" : "old";   // by share, so one new corner does not colour a big old forest
+  b.nfc = b.k !== 0 ? "" : b.nf[1] >= b.ha / 4 ? "recent" : b.nf[0] >= b.ha / 2 ? "most" : enough(b.nf[0], b, 50) ? "part" : "old";   // by share, so one new corner does not colour a big old forest
   b.soon = b.hg[0] + b.hg[1];                                  // ha due by 2033: the near-term work
   b.step = b.k === 0 && b.ha ? SOON_STEPS.findLastIndex(t => b.soon / b.ha >= t) : -1;
   b.text = [R[b.r], D[b.d], b.tt, KIND[b.k], ...b.firms, ...b.mg.map(m => m[1])].join(" ").toLowerCase();
@@ -114,7 +115,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") $("about").c
 document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => { S.tab = b.dataset.tab; update(); }));
 
 // ------------------------------------------------------------------ which blocks pass
-const DUE_MIN = 50;                   // a block counts for a harvest period when 50 ha+ of it falls in that period
+const DUE_MIN = 50;                   // a block counts for a harvest period when 50 ha+ (or a quarter of a small block) falls in it
 const near = ll => S.pin && map.distance(L.latLng(S.pin[0], S.pin[1]), ll) <= S.km * 1000;
 const words = () => S.q.toLowerCase().split(/\s+/).filter(Boolean);
 function passes(b) {
@@ -122,10 +123,10 @@ function passes(b) {
   if (S.region >= 0 && b.r !== S.region) return false;
   if (S.district >= 0 && b.d !== S.district) return false;
   if (S.size !== "" && !(b.ha >= SIZES[S.size][1] && b.ha < SIZES[S.size][2])) return false;
-  if (S.due !== "" && !(b.hg[+S.due] >= DUE_MIN)) return false;
+  if (S.due !== "" && !enough(b.hg[+S.due], b, DUE_MIN)) return false;
   if (S.mgr && b.mgr !== S.mgr) return false;
-  if (S.nf === "post" && !(b.nf[0] >= 50)) return false;
-  if (S.nf === "recent" && !(b.nf[1] >= 20)) return false;
+  if (S.nf === "post" && !enough(b.nf[0], b, 50)) return false;
+  if (S.nf === "recent" && !enough(b.nf[1], b, 20)) return false;
   if (S.pin && !near(b.ll)) return false;
   const w = words(); if (w.length && !w.every(x => b.text.includes(x))) return false;
   return true;
