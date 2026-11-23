@@ -28,7 +28,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 25;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 26;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
@@ -58,6 +58,9 @@ MG.firms.forEach(F => {
   F.year = (String(F.asof || "").match(/\d{4}/) || [""])[0];
 });
 MG.firms.sort((a, b) => b.ha - a.ha);
+// local forestry firms Google Maps lists in each region (managers, silviculture, logging crews, sawmills)
+const LOCAL = (MG.local || []).map(([n, t, town, ph, web, r]) => ({n, t, town, ph, web, r, text: [n, t, town, r].join(" ").toLowerCase()}));
+const LOCAL_TYPES = ["Forestry services", "Logging / harvesting", "Sawmill"];
 
 // ------------------------------------------------------------------ map
 const map = L.map("map", {preferCanvas: true});
@@ -301,8 +304,7 @@ const openFirms = new Set();
 function listManagers() {
   const reg = S.region >= 0 ? R[S.region] : null, w = words();
   const fs = MG.firms.filter(F => (!reg || F.reg.includes(reg)) && (!w.length || w.every(x => F.text.includes(x))));
-  if (!fs.length) return `<div class="more">No firms ${reg ? "listed in " + esc(reg) : "match"}.</div>`;
-  return `<div class="tip">${reg ? "Firms with forests in " + esc(reg) : "All firms"}, biggest first. Click one for its forests.</div>` +
+  return (fs.length ? `<div class="tip">${reg ? "Firms with forests in " + esc(reg) : "All firms"}, biggest first. Click one for its forests.</div>` +
     fs.map(F => {
       const open = openFirms.has(F.name);
       const tags = (F.fsc ? `<span class="tag fsc">FSC</span>` : "") + (F.chg && /^yes/i.test(F.chg) ? `<span class="tag chg">owner changed</span>`
@@ -317,7 +319,16 @@ function listManagers() {
             <span class="w"> · ${esc(x.where)}</span></span><span>${x.hat && /^\d+(\.\d+)?$/.test(x.hat) ? fmt(+x.hat) : esc(x.hat || "")}</span></div>`).join("") +
           `<div class="kidsrc">${F.fsc ? `FSC certified ${fmt(F.fsc)} ha · <a href="${esc(F.fscu)}" target="_blank" rel="noopener">certificate</a>` : ""}
             ${F.src ? ` · <a href="${esc(F.src)}" target="_blank" rel="noopener">owner source</a>` : ""}</div></div>` : "");
-    }).join("");
+    }).join("") : `<div class="more">No firms ${reg ? "listed in " + esc(reg) : "match"}.</div>`) + listLocal(reg, w);
+}
+function listLocal(reg, w) {
+  const ls = LOCAL.filter(x => (!reg || x.r === reg) && (!w.length || w.every(y => x.text.includes(y))));
+  if (!reg && !w.length) return `<div class="tip" style="margin-top:10px">Pick a region to also see the ${fmt(LOCAL.length)} local forestry firms Google Maps lists.</div>`;
+  if (!ls.length) return "";
+  return `<div class="tip" style="margin-top:10px"><b>Local forestry firms${reg ? " in " + esc(reg) : ""}</b> · ${ls.length} listed on Google Maps (Nov 2026)</div>` +
+    LOCAL_TYPES.map(t => { const g = ls.filter(x => x.t === t); return g.length ? `<div class="kidsrc" style="margin-top:6px"><b>${t}</b> (${g.length})</div>` +
+      g.map(x => `<div class="kid"><span>${x.web ? `<a href="${esc(x.web)}" target="_blank" rel="noopener">${esc(x.n)}</a>` : esc(x.n)}
+        <span class="w">${x.town ? " · " + esc(x.town) : ""}${!reg && x.r ? " · " + esc(x.r) : ""}</span></span><span style="white-space:nowrap;flex:none">${x.ph ? `<a href="tel:${esc(x.ph.replace(/\s/g, ""))}">${esc(x.ph)}</a>` : ""}</span></div>`).join("") : ""; }).join("");
 }
 function drawList() {
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.tab));
