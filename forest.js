@@ -28,10 +28,11 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 20;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 23;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
-const [B, MG] = await Promise.all([get("blocks.json"), get("managers.json")]);
+const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
+  fetch("stands/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}))]);
 const R = B.regions, D = B.districts, blocks = B.blocks, HG = B.harvest;
 const SHORT = Object.fromEntries(MG.firms.map(F => [F.name, F.short || F.name]));
 blocks.forEach(b => {
@@ -64,6 +65,45 @@ map.setView([-41.2, 172.8], 5, {animate: false});   // a view first: fitting a b
 olFitNZ(map);
 const rnd = L.canvas({padding: .5, tolerance: 4});
 const forestLayer = L.layerGroup().addTo(map);
+
+// ------------------------------------------------------------------ harvest period of each patch (stand_tiles.py)
+// PNG tiles in the light palette, z9-12; recoloured here (dark mode, one-period filter) and stretched past z12.
+const STAND_Z = 10, STAND_MAX = 12;
+const STAND_RGB = ["#b23a26", "#e0832a", "#dcc24a", "#7fae4a", "#2d6a40", "#7f6fb8"].map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));
+const STAND_SET = new Set(Object.entries(ST || {}).flatMap(([z, v]) => v.map(t => z + "/" + t)));
+const standImg = {};
+map.createPane("stands").style.zIndex = 350;
+const Stands = L.GridLayer.extend({
+  createTile(co, done) {
+    const cv = document.createElement("canvas"); cv.width = cv.height = 256;
+    const zz = Math.min(co.z, STAND_MAX), f = 2 ** (co.z - zz), x = Math.floor(co.x / f), y = Math.floor(co.y / f), key = `${zz}/${x}/${y}`;
+    if (!STAND_SET.has(key)) { setTimeout(() => done(null, cv)); return cv; }
+    const im = standImg[key] || (standImg[key] = new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = `stands/${key}.png?v=${DATA_V}`; }));
+    im.then(i => {
+      const g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
+      const s = 256 / f; g.drawImage(i, (co.x % f) * s, (co.y % f) * s, s, s, 0, 0, 256, 256);
+      const d = g.getImageData(0, 0, 256, 256), a = d.data, to = C.hg.map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))), only = S.due === "" ? -1 : +S.due;
+      for (let p = 0; p < a.length; p += 4) {
+        if (!a[p + 3]) continue;
+        const k = STAND_RGB.findIndex(c => Math.abs(c[0] - a[p]) + Math.abs(c[1] - a[p + 1]) + Math.abs(c[2] - a[p + 2]) < 12);
+        if (k < 0 || (only >= 0 && k !== only)) { a[p + 3] = 0; continue; }
+        a[p] = to[k][0]; a[p + 1] = to[k][1]; a[p + 2] = to[k][2]; a[p + 3] = 215;
+      }
+      g.putImageData(d, 0, 0); done(null, cv);
+    }).catch(() => done(null, cv));
+    return cv;
+  }
+});
+const stands = new Stands({pane: "stands", minZoom: STAND_Z, maxZoom: 19, updateWhenZooming: false});
+const standsOn = () => S.colour === "due" && map.getZoom() >= STAND_Z && STAND_SET.size > 0;
+let standsWere = null;
+function syncStands() {
+  const on = standsOn();
+  if (on && !map.hasLayer(stands)) stands.addTo(map);
+  if (!on && map.hasLayer(stands)) map.removeLayer(stands);
+  if (on && standsWere !== S.due) stands.redraw();
+  standsWere = on ? S.due : null;
+}
 
 // ------------------------------------------------------------------ state (kept in the address bar)
 const S = {};
@@ -140,8 +180,8 @@ const colourOf = b => S.colour === "due" ? (dueOn() ? C.hg[+S.due] : b.step >= 0
 let picked = null, shown = [];
 function styleOf(b) {
   const c = colourOf(b), sel = picked === b;
-  const fo = dueOn() ? .15 + .75 * Math.sqrt(share(b)) : .7;
-  return {renderer: rnd, color: sel ? C.sel : c, weight: sel ? 2.5 : .6, opacity: sel ? 1 : .9, fillColor: c, fillOpacity: sel ? Math.max(fo, .6) : fo};
+  const fo = standsOn() && b.k === 0 ? 0 : dueOn() ? .15 + .75 * Math.sqrt(share(b)) : .7;
+  return {renderer: rnd, color: sel ? C.sel : standsOn() && b.k === 0 ? (dark ? "#cfc6b4" : "#5a5146") : c, weight: sel ? 2.5 : .6, opacity: sel ? 1 : .9, fillColor: c, fillOpacity: sel ? Math.max(fo, standsOn() && b.k === 0 ? .08 : .6) : fo};
 }
 function shapeOf(b) {
   if (!b.layer) {
@@ -161,7 +201,8 @@ function draw() {
 function blockCard(b) {
   const tot = b.hg.reduce((s, v) => s + v, 0);
   const ageRows = b.k === 0 && tot ? `<div class="s" style="margin-top:6px">Harvest due</div><div class="bar">${b.hg.map((v, i) => v ? `<span style="width:${v / tot * 100}%;background:${C.hg[i]}"></span>` : "").join("")}</div>
-    <table>${b.hg.map((v, i) => v ? `<tr><td><i style="background:${C.hg[i]}"></i>${HG[i]}</td><td>${fmt(v)} ha</td></tr>` : "").join("")}</table>` : "";
+    <table>${b.hg.map((v, i) => v ? `<tr><td><i style="background:${C.hg[i]}"></i>${HG[i]}</td><td>${fmt(v)} ha</td></tr>` : "").join("")}</table>
+    ${b.src && b.src.length ? `<div class="s">Ages from: satellite fells ${b.src[0]}%, lidar height ${b.src[1]}%, land-cover map ${b.src[2]}%</div>` : ""}` : "";
   const byFirm = {}; b.mg.forEach(([f, n]) => (byFirm[SHORT[f]] = byFirm[SHORT[f]] || []).push(n));
   const mgrRow = b.mg.length ? `<div class="s" style="margin-top:6px">Manager's list names here</div>${Object.entries(byFirm).map(([f, ns]) =>
     `<div><b>${esc(f)}</b> <span class="s">${esc(ns.join(", "))}</span></div>`).join("")}`
@@ -222,7 +263,8 @@ map.getContainer().appendChild(legend);
 L.DomEvent.disableClickPropagation(legend);
 function drawLegend() {
   const k = (c, t, round) => `<div class="k"><i style="background:${c}${round ? ";border-radius:50%" : ""}"></i>${esc(t)}</div>`;
-  legend.innerHTML = (dueOn() ? `<div class="lh">${esc(HG[+S.due])}</div>` + [[1, "All of the block"], [.5, "Half"], [.1, "A tenth"]].map(([f, t]) =>
+  legend.innerHTML = standsOn() ? `<div class="lh">Harvest due, each patch</div>` + HG.map((n, i) => S.due === "" || S.due === String(i) ? k(C.hg[i], n) : "").join("") + k(VIZ.none, "Mānuka / kānuka")
+    : (dueOn() ? `<div class="lh">${esc(HG[+S.due])}</div>` + [[1, "All of the block"], [.5, "Half"], [.1, "A tenth"]].map(([f, t]) =>
       `<div class="k"><i style="background:${C.hg[+S.due]};opacity:${.15 + .75 * Math.sqrt(f)}"></i>${t}</div>`).join("")
     : S.colour === "due" ? `<div class="lh">Share of block due by 2033</div>` + SOON_TEXT.map((n, i) => k(C.soon[i], n)).reverse().join("") + k(VIZ.none, "Mānuka / kānuka")
     : S.colour === "mgr" ? Object.keys(MGR).map(l => k(C.mgr[l], MGR[l])).join("")
@@ -285,6 +327,8 @@ $("list").addEventListener("click", e => {
   if (it.dataset.f) { const f = it.dataset.f; openFirms.has(f) ? openFirms.delete(f) : openFirms.add(f); drawList(); }
 });
 map.on("moveend", () => { if (S.tab !== "managers") drawList(); });
+let standsZ = null;
+map.on("zoomend", () => { const on = standsOn(); if (on !== standsZ) { standsZ = on; syncStands(); shown.forEach(b => b.layer && b.layer.setStyle(styleOf(b))); drawLegend(); } });
 
 $("pipe").addEventListener("click", e => { const r = e.target.closest("[data-due]"); if (!r) return;
   S.due = S.due === r.dataset.due ? "" : r.dataset.due; update(); });
@@ -310,7 +354,7 @@ function syncControls() {
   $("f-colour").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === S.colour));
 }
 function update(zoomTo) {
-  syncControls(); draw(); summary(); drawLegend(); drawList(); writeHash();
+  syncControls(); syncStands(); draw(); summary(); drawLegend(); drawList(); writeHash();
   if (zoomTo && shown.length && (S.region >= 0 || S.district >= 0)) {
     map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
     const go = () => map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});
