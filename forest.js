@@ -28,7 +28,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 23;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 24;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
@@ -95,7 +95,7 @@ const Stands = L.GridLayer.extend({
   }
 });
 const stands = new Stands({pane: "stands", minZoom: STAND_Z, maxZoom: 19, updateWhenZooming: false});
-const standsOn = () => S.colour === "due" && map.getZoom() >= STAND_Z && STAND_SET.size > 0;
+const standsOn = () => S.colour === "due" && map.getSize().x > 0 && Number.isFinite(map.getZoom()) && map.getZoom() >= STAND_Z && STAND_SET.size > 0;
 let standsWere = null;
 function syncStands() {
   const on = standsOn();
@@ -358,6 +358,12 @@ function update(zoomTo) {
   if (zoomTo && shown.length && (S.region >= 0 || S.district >= 0)) {
     map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
     const go = () => map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});
+    whenSized(go);
+  }
+}
+function whenSized(go) {                           // a map box not yet sized (hidden or new tab) cannot fit a view: wait
+  map.invalidateSize(false);
+  {
     if (!map.getSize().x) { const ro = new ResizeObserver(() => { if (map.getSize().x || (map.invalidateSize(false), map.getSize().x)) { ro.disconnect(); go(); } }); ro.observe(map.getContainer()); }
     else go();
   }
@@ -365,5 +371,5 @@ function update(zoomTo) {
 $("q").value = S.q; fillDistricts();
 if (S.pin) setPin(L.latLng(S.pin[0], S.pin[1]));
 update(S.region >= 0 || S.district >= 0);
-if (S.pin) map.fitBounds(pinRing.getBounds(), {animate: false});
+if (S.pin) whenSized(() => map.fitBounds(pinRing.getBounds(), {animate: false}));
 })().catch(e => { document.getElementById("list").innerHTML = `<div class="more">The map could not load: ${String(e.message || e)}</div>`; console.error(e); });
