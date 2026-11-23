@@ -28,7 +28,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 27;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 28;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
@@ -71,13 +71,15 @@ const rnd = L.canvas({padding: .5, tolerance: 4});
 const forestLayer = L.layerGroup().addTo(map);
 
 // ------------------------------------------------------------------ harvest period of each patch (stand_tiles.py)
-// PNG tiles in the light palette, z9-12; recoloured here (dark mode, one-period filter) and stretched past z12.
-const STAND_Z = 10, STAND_MAX = 12;
+// PNG tiles in the light palette, z3-12; recoloured here (dark mode, one-period filter) and stretched past z12.
+const STAND_Z = 3, STAND_MAX = 12, LINE_Z = 10;   // zoomed out past LINE_Z, plantation outlines hide so the patch colours show
+// tiles z3-12 (z3-8 from stand_tiles_low.py) so patches show at every zoom
 const STAND_RGB = ["#b23a26", "#e0832a", "#dcc24a", "#7fae4a", "#2d6a40", "#7f6fb8"].map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));
 const STAND_SET = new Set(Object.entries(ST || {}).flatMap(([z, v]) => v.map(t => z + "/" + t)));
 const standImg = {};
 map.createPane("stands").style.zIndex = 350;
 const Stands = L.GridLayer.extend({
+  _clampZoom(z) { return L.GridLayer.prototype._clampZoom.call(this, Math.round(z)); },   // Leaflet 1.9 redraw() skips the rounding: at zoom 5.75 it asked for tiles "5.75/x/y" and drew nothing
   createTile(co, done) {
     const cv = document.createElement("canvas"); cv.width = cv.height = 256;
     const zz = Math.min(co.z, STAND_MAX), f = 2 ** (co.z - zz), x = Math.floor(co.x / f), y = Math.floor(co.y / f), key = `${zz}/${x}/${y}`;
@@ -185,7 +187,7 @@ let picked = null, shown = [];
 function styleOf(b) {
   const c = colourOf(b), sel = picked === b;
   const fo = standsOn() && b.k === 0 ? 0 : dueOn() ? .15 + .75 * Math.sqrt(share(b)) : .7;
-  return {renderer: rnd, color: sel ? C.sel : standsOn() && b.k === 0 ? (dark ? "#cfc6b4" : "#5a5146") : c, weight: sel ? 2.5 : .6, opacity: sel ? 1 : .9, fillColor: c, fillOpacity: sel ? Math.max(fo, standsOn() && b.k === 0 ? .08 : .6) : fo};
+  return {renderer: rnd, color: sel ? C.sel : standsOn() && b.k === 0 ? (dark ? "#cfc6b4" : "#5a5146") : c, weight: sel ? 2.5 : .6, opacity: sel ? 1 : standsOn() && b.k === 0 && map.getZoom() < LINE_Z ? 0 : .9, fillColor: c, fillOpacity: sel ? Math.max(fo, standsOn() && b.k === 0 ? .08 : .6) : fo};
 }
 function shapeOf(b) {
   if (!b.layer) {
@@ -342,7 +344,7 @@ $("list").addEventListener("click", e => {
 });
 map.on("moveend", () => { if (S.tab !== "managers") drawList(); });
 let standsZ = null;
-map.on("zoomend", () => { const on = standsOn(); if (on !== standsZ) { standsZ = on; syncStands(); shown.forEach(b => b.layer && b.layer.setStyle(styleOf(b))); drawLegend(); } });
+map.on("zoomend", () => { const on = standsOn() + "" + (map.getZoom() >= LINE_Z); if (on !== standsZ) { standsZ = on; syncStands(); shown.forEach(b => b.layer && b.layer.setStyle(styleOf(b))); drawLegend(); } });
 
 $("pipe").addEventListener("click", e => { const r = e.target.closest("[data-due]"); if (!r) return;
   S.due = S.due === r.dataset.due ? "" : r.dataset.due; update(); });
