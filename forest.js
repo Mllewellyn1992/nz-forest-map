@@ -32,11 +32,12 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 35;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 36;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
-const [B, MG, E, ST] = await Promise.all([get("blocks.json"), get("managers.json"), get("extra.json").catch(() => ({h: {}, v: {}, vb: {}})),
-  fetch("stands/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}))]);
+const tileIndex = d => fetch(d + "/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+const [B, MG, E, ST, HT] = await Promise.all([get("blocks.json"), get("managers.json"), get("extra.json").catch(() => ({h: {}, v: {}, vb: {}})),
+  tileIndex("stands"), tileIndex("heights")]);
 const R = B.regions, D = B.districts, blocks = B.blocks, HG = B.harvest;
 const SHORT = Object.fromEntries(MG.firms.map(F => [F.name, F.short || F.name]));
 blocks.forEach(b => {
@@ -92,49 +93,77 @@ const forestLayer = L.layerGroup().addTo(map);
 const STAND_Z = 3, STAND_MAX = 12, LINE_Z = 10;   // zoomed out past LINE_Z, plantation outlines hide so the patch colours show
 // tiles z3-12 (z3-8 from stand_tiles_low.py) so patches show at every zoom
 const STAND_RGB = ["#b23a26", "#e0832a", "#dcc24a", "#7fae4a", "#2d6a40", "#7f6fb8"].map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));
-const STAND_SET = new Set(Object.entries(ST || {}).flatMap(([z, v]) => v.map(t => z + "/" + t)));
+const tileSet = T => new Set(Object.entries(T || {}).flatMap(([z, v]) => v.map(t => z + "/" + t)));
+const STAND_SET = tileSet(ST), HT_SET = tileSet(HT);
+const HT_RGB = ["#efe6c4", "#cfd99a", "#8fbf68", "#3f8f4c", "#164f2c"].map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));   // height_tiles.py palette
 const standImg = {};
+let standMask = "", standAreas = [];                 // drive-time tool: patches outside the picked areas are cut away
 map.createPane("stands").style.zIndex = 350;
 const Stands = L.GridLayer.extend({
   _clampZoom(z) { return L.GridLayer.prototype._clampZoom.call(this, Math.round(z)); },   // Leaflet 1.9 redraw() skips the rounding: at zoom 5.75 it asked for tiles "5.75/x/y" and drew nothing
   createTile(co, done) {
     const cv = document.createElement("canvas"); cv.width = cv.height = 256;
     const zz = Math.min(co.z, STAND_MAX), f = 2 ** (co.z - zz), x = Math.floor(co.x / f), y = Math.floor(co.y / f), key = `${zz}/${x}/${y}`;
-    if (!STAND_SET.has(key)) { setTimeout(() => done(null, cv)); return cv; }
-    const im = standImg[key] || (standImg[key] = new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = `stands/${key}.png?v=${DATA_V}`; }));
+    const o = this.options;
+    if (!o.set.has(key)) { setTimeout(() => done(null, cv)); return cv; }
+    const ik = o.dir + key;
+    const im = standImg[ik] || (standImg[ik] = new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = `${o.dir}/${key}.png?v=${DATA_V}`; }));
     im.then(i => {
       const g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
       const s = 256 / f; g.drawImage(i, (co.x % f) * s, (co.y % f) * s, s, s, 0, 0, 256, 256);
-      const d = g.getImageData(0, 0, 256, 256), a = d.data, to = C.hg.map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))), only = S.due === "" ? -1 : +S.due;
+      const d = g.getImageData(0, 0, 256, 256), a = d.data, to = o.to().map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))), only = o.only();
       for (let p = 0; p < a.length; p += 4) {
         if (!a[p + 3]) continue;
-        const k = STAND_RGB.findIndex(c => Math.abs(c[0] - a[p]) + Math.abs(c[1] - a[p + 1]) + Math.abs(c[2] - a[p + 2]) < 12);
+        const k = o.rgb.findIndex(c => Math.abs(c[0] - a[p]) + Math.abs(c[1] - a[p + 1]) + Math.abs(c[2] - a[p + 2]) < 12);
         if (k < 0 || (only >= 0 && k !== only)) { a[p + 3] = 0; continue; }
         a[p] = to[k][0]; a[p + 1] = to[k][1]; a[p + 2] = to[k][2]; a[p + 3] = 215;
       }
-      g.putImageData(d, 0, 0); done(null, cv);
+      g.putImageData(d, 0, 0);
+      if (standAreas.length) {                       // keep only what lies inside a drive area
+        const o = L.point(co.x * 256, co.y * 256), nw = map.unproject(o, co.z), se = map.unproject(o.add([256, 256]), co.z);
+        const hit = standAreas.filter(A => A.bb[0] <= nw.lat && A.bb[2] >= se.lat && A.bb[1] <= se.lng && A.bb[3] >= nw.lng);
+        if (!hit.length) g.clearRect(0, 0, 256, 256);   // an empty path would cut nothing
+        g.globalCompositeOperation = "destination-in"; g.beginPath();
+        hit.forEach(A => A.rings.forEach(r => r.forEach(([la, ln], i) => {
+          const q = map.project([la, ln], co.z).subtract(o); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); })));
+        g.fillStyle = "#000"; g.fill(); g.globalCompositeOperation = "source-over";
+      }
+      done(null, cv);
     }).catch(() => done(null, cv));
     return cv;
   }
 });
-const stands = new Stands({pane: "stands", minZoom: STAND_Z, maxZoom: 19, updateWhenZooming: false});
-const standsOn = () => S.colour === "due" && map.getSize().x > 0 && Number.isFinite(map.getZoom()) && map.getZoom() >= STAND_Z && STAND_SET.size > 0;
+const stands = new Stands({pane: "stands", minZoom: STAND_Z, maxZoom: 19, updateWhenZooming: false, dir: "stands", set: STAND_SET, rgb: STAND_RGB,
+  to: () => C.hg, only: () => S.due === "" ? -1 : +S.due});
+// Height view: every 80 m lidar cell coloured by tree height (height_tiles.py), the same way as the harvest patches
+const heights = new Stands({pane: "stands", minZoom: STAND_Z, maxZoom: 19, updateWhenZooming: false, dir: "heights", set: HT_SET, rgb: HT_RGB,
+  to: () => C.ht, only: () => -1});
+const mapReady = () => map.getSize().x > 0 && Number.isFinite(map.getZoom()) && map.getZoom() >= STAND_Z;
+const standsOn = () => S.colour === "due" && mapReady() && STAND_SET.size > 0;
+const heightsOn = () => S.colour === "ht" && mapReady() && HT_SET.size > 0;
+const patchOn = b => (standsOn() && b.k === 0) || (heightsOn() && !!b.ht);     // the tiles draw this forest, so its fill steps aside
 let standsWere = null;
 function syncStands() {
   const on = standsOn();
   if (on && !map.hasLayer(stands)) stands.addTo(map);
   if (!on && map.hasLayer(stands)) map.removeLayer(stands);
-  if (on && standsWere !== S.due) stands.redraw();
-  standsWere = on ? S.due : null;
+  if (on && standsWere !== S.due + standMask) stands.redraw();
+  standsWere = on ? S.due + standMask : null;
+  const hon = heightsOn();
+  if (hon && !map.hasLayer(heights)) heights.addTo(map);
+  if (!hon && map.hasLayer(heights)) map.removeLayer(heights);
+  if (hon && heightsWere !== standMask) heights.redraw();
+  heightsWere = hon ? standMask : null;
 }
+let heightsWere = null;
 
 // ------------------------------------------------------------------ state (kept in the address bar)
 const S = {};
-const BLANK = {q: "", kind: "", due: "", region: -1, district: -1, size: "", mgr: "", nf: "", colour: "due", tab: "blocks", pin: null, km: 25, fm: [], inf: ""};
+const BLANK = {q: "", kind: "", due: "", region: -1, district: -1, size: "", mgr: "", nf: "", colour: "due", tab: "blocks", pin: null, km: 25, fm: [], inf: "", dt: "", dm: "60"};
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   Object.assign(S, BLANK);
-  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "inf"]) if (p.has(k)) S[k] = p.get(k);
+  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "inf", "dt", "dm"]) if (p.has(k)) S[k] = p.get(k);
   for (const k of ["region", "district"]) if (p.has(k)) S[k] = +p.get(k);
   if (p.has("km")) S.km = /^d\d+$/.test(p.get("km")) ? p.get("km") : +p.get("km") || 25;   // "d30" = a 30 min drive
   if (!["blocks", "managers"].includes(S.tab)) S.tab = "blocks";
@@ -143,7 +172,7 @@ function readHash() {
 }
 function writeHash() {
   const p = new URLSearchParams();
-  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "region", "district", "inf"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
+  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "region", "district", "inf", "dt", "dm"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
   if (S.fm.length) p.set("fm", S.fm.join("|"));
   if (S.pin) { p.set("pin", S.pin.map(v => v.toFixed(4)).join(",")); p.set("km", S.km); }
   history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
@@ -204,6 +233,7 @@ function passes(b, anyFirm) {
   if (S.nf === "post" && !enough(b.nf[0], b, 50)) return false;
   if (S.nf === "recent" && !enough(b.nf[1], b, 20)) return false;
   if (S.pin && !near(b.ll)) return false;
+  if (S.dt && !inDrive(b.ll)) return false;
   const w = words(); if (w.length && !w.every(x => b.text.includes(x))) return false;
   return true;
 }
@@ -226,8 +256,8 @@ function tipOf(b) {
 let picked = null, shown = [];
 function styleOf(b) {
   const c = colourOf(b), sel = picked === b;
-  const fo = standsOn() && b.k === 0 ? 0 : dueOn() ? .15 + .75 * Math.sqrt(share(b)) : .7;
-  return {renderer: rnd, color: sel ? C.sel : standsOn() && b.k === 0 ? (dark ? "#cfc6b4" : "#5a5146") : c, weight: sel ? 2.5 : .6, opacity: sel ? 1 : standsOn() && b.k === 0 && map.getZoom() < LINE_Z ? 0 : .9, fillColor: c, fillOpacity: sel ? Math.max(fo, standsOn() && b.k === 0 ? .08 : .6) : fo};
+  const fo = patchOn(b) ? 0 : dueOn() ? .15 + .75 * Math.sqrt(share(b)) : .7;
+  return {renderer: rnd, color: sel ? C.sel : patchOn(b) ? (dark ? "#cfc6b4" : "#5a5146") : c, weight: sel ? 2.5 : .6, opacity: sel ? 1 : patchOn(b) && map.getZoom() < LINE_Z ? 0 : .9, fillColor: c, fillOpacity: sel ? Math.max(fo, patchOn(b) ? .08 : .6) : fo};
 }
 function shapeOf(b) {
   if (!b.layer) {
@@ -244,6 +274,13 @@ function draw() {
 }
 
 // ------------------------------------------------------------------ the block card
+function driveRow(b) {
+  if (!DRIVE.d || !INF.mills) return "";
+  const kindOf = Object.fromEntries(INF.mills.map(M => [M.n, M.kind]));
+  const line = (t, r) => r[0] ? `<div>${t}: <b>under ${r[0]} min</b> <span class="s">${esc(r[1].slice(0, 2).join(", "))}${r[1].length > 2 ? ` +${r[1].length - 2}` : ""}</span></div>` : `<div>${t}: <b>over 60 min</b></div>`;
+  return `<div class="s" style="margin-top:6px">Drive by car from the middle of the forest</div>
+    ${line("Port", driveTo(b, "ports", () => true))}${line("Sawmill", driveTo(b, "mills", n => kindOf[n] === "Sawmill"))}`;
+}
 function blockCard(b) {
   const tot = b.hg.reduce((s, v) => s + v, 0);
   const ageRows = b.k === 0 && tot ? `<div class="s" style="margin-top:6px">Harvest due</div><div class="bar">${b.hg.map((v, i) => v ? `<span style="width:${v / tot * 100}%;background:${C.hg[i]}"></span>` : "").join("")}</div>
@@ -269,7 +306,7 @@ function blockCard(b) {
     b.mao ? ["Māori land", fmt(b.mao) + " ha"] : null, b.con ? ["Conservation land", fmt(b.con) + " ha"] : null].filter(Boolean);
   return `<div class="card"><h3>${esc(KIND[b.k])} · ${fmt(b.ha)} ha</h3>
     <div class="s">${esc(D[b.d] || "")}${b.r >= 0 ? ", " + esc(R[b.r]) : ""}</div>
-    ${ageRows}${htRow}${volRow}${b.k === 0 ? mgrRow + resRow : ""}${b.k === 0 && b.nf[0] ? `<div class="s" style="margin-top:6px">Post-1989 forest land: <b>${fmt(b.nf[0])} ha</b>${b.nf[1] ? ` (${fmt(b.nf[1])} ha planted 2018-23)` : ""}</div>` : ""}
+    ${ageRows}${htRow}${volRow}${driveRow(b)}${b.k === 0 ? mgrRow + resRow : ""}${b.k === 0 && b.nf[0] ? `<div class="s" style="margin-top:6px">Post-1989 forest land: <b>${fmt(b.nf[0])} ha</b>${b.nf[1] ? ` (${fmt(b.nf[1])} ha planted 2018-23)` : ""}</div>` : ""}
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</table>
     <div class="links"><a href="https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3" target="_blank" rel="noopener">Satellite view</a>
       ${b.r >= 0 ? `<a href="#" data-managers="${b.r}">Managers in ${esc(R[b.r])}</a>` : ""}</div></div>`;
@@ -355,31 +392,81 @@ function portCard(P, period) {
 }
 function millCard(M) {
   return `<div class="card"><h3>${esc(M.n)}</h3><div class="s">${esc(M.own || "")}${M.own && M.town ? " · " : ""}${esc(M.town || "")}</div>
-    <table>${[["Makes", M.prod], ["Size", M.size], ["Sells to", M.exp], ["Status", M.st + (M.sd ? ` (${M.sd})` : "")]].filter(r => r[1] && !/^(unknown|n\/a|none)$/i.test(r[1])).map(r => `<tr><td>${r[0]}</td><td>${esc(r[1])}</td></tr>`).join("")}</table>
+    <table>${[["Makes", M.prod], ["Size", M.size], ["Sells to", M.exp], ["Status", M.st + (M.sd ? ` (${M.sd})` : "")], ["Phone", M.ph]].filter(r => r[1] && !/^(unknown|n\/a|none)$/i.test(r[1])).map(r => `<tr><td>${r[0]}</td><td>${esc(r[1])}</td></tr>`).join("")}</table>
     ${/^town/.test(M.at || "") ? `<div class="s">Pin at the town centre, not the mill gate</div>` : ""}
-    ${M.src ? `<div class="links"><a href="${esc(M.src)}" target="_blank" rel="noopener">Status source</a></div>` : ""}</div>`;
+    ${M.src ? `<div class="links"><a href="${esc(M.src)}" target="_blank" rel="noopener">${/google\.com\/maps/.test(M.src) ? "Google Maps listing" : "Status source"}</a></div>` : ""}</div>`;
 }
 const PORT_C = "#1f4e79", MILL_C = dark ? "#f2efe8" : "#1b1d21", MILL_RING = dark ? "#1b1d21" : "#ffffff";   // mills: black dots, apart from every forest colour
+let infKey = null;
+const infShow = kind => S.inf || (S.dt === "ports" ? kind === "port" : S.dt === "saw" ? kind === "Sawmill" : S.dt === "mills" ? kind !== "port" : false);
 function buildInf() {
+  infKey = S.inf + S.dt;
   INF.layer.clearLayers();
   const pr = L.canvas({padding: .5});
-  (INF.mills || []).forEach(M => L.circleMarker(M.ll, {renderer: pr, radius: 5.5, color: MILL_RING, weight: 1.5, fillColor: MILL_C, fillOpacity: 1})
+  (INF.mills || []).filter(M => infShow(M.kind)).forEach(M => L.circleMarker(M.ll, {renderer: pr, radius: 5.5, color: MILL_RING, weight: 1.5, fillColor: MILL_C, fillOpacity: 1})
     .bindTooltip(`<b>${esc(M.n)}</b><br>${esc(M.kind)}`, {direction: "top"}).bindPopup(() => millCard(M), {maxWidth: 320}).addTo(INF.layer));
   const top = Math.max(...INF.ports.ports.map(P => P.logs || 0));
-  INF.ports.ports.forEach(P => L.circleMarker(P.ll, {renderer: pr, radius: 6 + 8 * Math.sqrt((P.logs || 0) / top), color: "#fff", weight: 1.5, fillColor: PORT_C, fillOpacity: .9})
+  INF.ports.ports.filter(() => infShow("port")).forEach(P => L.circleMarker(P.ll, {renderer: pr, radius: 6 + 8 * Math.sqrt((P.logs || 0) / top), color: "#fff", weight: 1.5, fillColor: PORT_C, fillOpacity: .9})
     .bindTooltip(`<b>${esc(P.n)}</b><br>${P.logs ? m3(P.logs) + " m³ logs a year" : "Export port"}`, {direction: "top"})
     .bindPopup(() => portCard(P, INF.ports.period), {maxWidth: 320}).addTo(INF.layer));
 }
+let infLoad = null;
+const loadInf = () => infLoad = infLoad || Promise.all([get("ports.json"), get("mills.json").then(d => d.mills).catch(() => [])])
+  .then(([p, m]) => { INF.ports = p; INF.mills = m; buildInf(); });
 async function syncInf() {
   document.querySelectorAll("#f-inf button").forEach(x => x.classList.toggle("on", x.dataset.v === S.inf));
-  if (!S.inf) { map.removeLayer(INF.layer); return; }
-  if (!INF.ports) {
-    [INF.ports, INF.mills] = await Promise.all([get("ports.json"), get("mills.json").then(d => d.mills).catch(() => [])]);
-    buildInf();
-  }
-  if (S.inf) { INF.layer.addTo(map); drawLegend(); }
+  if (!S.inf && !S.dt) { map.removeLayer(INF.layer); return; }      // drive areas show their ports / mills too
+  await loadInf();
+  if (infKey !== S.inf + S.dt) buildInf();
+  if (S.inf || S.dt) { INF.layer.addTo(map); drawLegend(); }
 }
 $("f-inf").addEventListener("click", e => { const x = e.target.closest("button"); if (!x) return; S.inf = x.dataset.v; syncInf(); drawLegend(); writeHash(); });
+
+// ------------------------------------------------------------------ drive time from ports / mills (Mike 2026-11-24)
+// areas built once by drive_areas.py (Valhalla, car, 15-60 min); a forest counts when its centre is inside
+const DRIVE = {d: null, layer: L.layerGroup(), set: [], key: ""};
+map.createPane("drive").style.zIndex = 350;                              // under the forests
+const driveRnd = L.canvas({pane: "drive", padding: .5});
+const DT_NAME = {ports: "a port", saw: "a sawmill", mills: "a mill"};
+const DRIVE_C = dark ? "#6fa8dc" : "#1f4e79";
+let driveLoad = null;
+const loadDrive = () => driveLoad = driveLoad || get("drive.json").then(d => {
+  const bb = rings => { let a = 90, b = 180, c = -90, e = -180; rings.forEach(r => r.forEach(([y, x]) => { a = Math.min(a, y); c = Math.max(c, y); b = Math.min(b, x); e = Math.max(e, x); })); return [a, b, c, e]; };
+  for (const g of ["ports", "mills"]) for (const n in d[g]) for (const m in d[g][n]) d[g][n][m] = {rings: d[g][n][m], bb: bb(d[g][n][m])};
+  DRIVE.d = d; return d; }).catch(() => null);
+const inArea = (A, ll) => ll.lat >= A.bb[0] && ll.lat <= A.bb[2] && ll.lng >= A.bb[1] && ll.lng <= A.bb[3] && inPoly(A.rings, ll.lat, ll.lng);
+const inDrive = ll => !DRIVE.set.length ? !DRIVE.d : DRIVE.set.some(A => inArea(A.a, ll));
+function driveNames() {             // the places the picked kind covers
+  if (S.dt === "ports") return INF.ports ? INF.ports.ports.map(P => ["ports", P.n]) : [];
+  return (INF.mills || []).filter(M => S.dt === "mills" || M.kind === "Sawmill").map(M => ["mills", M.n]);
+}
+async function syncDrive() {
+  document.querySelectorAll("#f-dt button").forEach(x => x.classList.toggle("on", x.dataset.v === S.dt));
+  $("dmbox").hidden = !S.dt; $("f-dm").value = S.dm;
+  const key = S.dt ? S.dt + S.dm : "";
+  if (key === DRIVE.key) return;
+  DRIVE.key = key; DRIVE.layer.clearLayers(); DRIVE.set = []; standAreas = []; standMask = key;
+  if (!S.dt) { map.removeLayer(DRIVE.layer); syncStands(); return; }
+  await Promise.all([loadDrive(), loadInf()]);
+  if (!DRIVE.d || DRIVE.key !== key) return;
+  DRIVE.set = driveNames().map(([g, n]) => ({n, a: (DRIVE.d[g][n] || {})[S.dm]})).filter(x => x.a);
+  standAreas = DRIVE.set.map(x => x.a); standMask = key + ":" + standAreas.length;
+  DRIVE.set.forEach(x => L.polygon(x.a.rings, {renderer: driveRnd, color: DRIVE_C, weight: 1, opacity: .5, fillColor: DRIVE_C, fillOpacity: dark ? .16 : .1, interactive: false}).addTo(DRIVE.layer));
+  DRIVE.layer.addTo(map);
+  update();                         // the forest filter needs the areas
+}
+$("f-dt").addEventListener("click", e => { const x = e.target.closest("button"); if (!x) return; S.dt = x.dataset.v; update(); });
+$("f-dm").addEventListener("change", () => { S.dm = $("f-dm").value; update(); });
+// nearest port / mill by drive time, for the forest card
+function driveTo(b, g, filt) {
+  if (!DRIVE.d) return null;
+  for (const m of DRIVE.d.mins) {
+    const hit = Object.entries(DRIVE.d[g]).filter(([n, A]) => filt(n) && A[m] && inArea(A[m], b.ll)).map(([n]) => n);
+    if (hit.length) return [m, hit];
+  }
+  return [0, []];
+}
+loadDrive(); loadInf();          // both small: the forest card uses them for its drive lines
 
 // ------------------------------------------------------------------ legend
 const legend = L.DomUtil.create("div", "legend");
@@ -393,16 +480,18 @@ function drawLegend() {
     : S.colour === "due" ? `<div class="lh">Share of block due by 2033</div>` + SOON_TEXT.map((n, i) => k(C.soon[i], n)).reverse().join("") + k(VIZ.none, "Mānuka / kānuka")
     : S.colour === "mgr" ? Object.keys(MGR).map(l => k(C.mgr[l], MGR[l])).join("")
     : S.colour === "nf" ? Object.keys(NF).map(l => k(C.nf[l], NF[l])).join("") + k(VIZ.none, "Mānuka / kānuka")
-    : S.colour === "ht" ? `<div class="lh">Tree height, middle of block</div>` + HT_TEXT.map((n, i) => k(C.ht[i], n)).reverse().join("") + k(VIZ.none, "No lidar yet")
+    : S.colour === "ht" ? `<div class="lh">${heightsOn() ? "Tree height, each 80 m patch (lidar)" : "Tree height, middle of block"}</div>` + HT_TEXT.map((n, i) => k(C.ht[i], n)).reverse().join("") + k(VIZ.none, "No lidar yet")
     : KIND.map((n, i) => k(C.kind[i], n)).join("")))
-    + (S.inf ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + k(PORT_C, "Export port (size = logs)", 1) + (INF.mills && INF.mills.length ? k(MILL_C, "Mill", 1) : "") : "");
+    + (S.inf || S.dt ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + (infShow("port") ? k(PORT_C, "Export port (size = logs)", 1) : "")
+      + (INF.mills && INF.mills.length && (infShow("Sawmill") || infShow("Pulp mill")) ? k(MILL_C, S.inf || S.dt === "mills" ? "Mill" : "Sawmill", 1) : "") : "")
+    + (S.dt ? k(DRIVE_C + "40", `Within ${S.dm} min drive of ${DT_NAME[S.dt]}`) : "");
 }
 
 // ------------------------------------------------------------------ side panel
 const LIST_MAX = 200;
 function summary() {
   const ha = shown.reduce((s, b) => s + b.ha, 0);
-  $("sum").innerHTML = `<b>${fmt(shown.length)}</b> forests · <b>${fmt(ha)}</b> ha${S.pin ? ` · ${pinLabel()}` : ""}`;
+  $("sum").innerHTML = `<b>${fmt(shown.length)}</b> forests · <b>${fmt(ha)}</b> ha${S.pin ? ` · ${pinLabel()}` : ""}${S.dt ? ` · within ${S.dm} min drive of ${DT_NAME[S.dt]}` : ""}`;
   const due = HG.map((_, i) => shown.reduce((s, b) => s + (b.k === 0 ? b.hg[i] : 0), 0)), top = Math.max(...due, 1);
   $("pipe").innerHTML = due.some(v => v) ? `<div class="ph">Plantation harvest due, ha (click to filter)</div>` + HG.map((n, i) =>
     `<div class="pr${S.due === String(i) ? " on" : ""}" data-due="${i}"><span class="pl">${n}</span><span class="pb"><span style="width:${due[i] / top * 100}%;background:${C.hg[i]}"></span></span><span class="pn">${fmt(due[i])}</span></div>`).join("") : "";
@@ -488,7 +577,7 @@ $("list").addEventListener("click", e => {
 });
 map.on("moveend", () => { if (S.tab !== "managers") drawList(); });
 let standsZ = null;
-map.on("zoomend", () => { const on = standsOn() + "" + (map.getZoom() >= LINE_Z); if (on !== standsZ) { standsZ = on; syncStands(); shown.forEach(b => b.layer && b.layer.setStyle(styleOf(b))); drawLegend(); } });
+map.on("zoomend", () => { const on = standsOn() + "" + heightsOn() + (map.getZoom() >= LINE_Z); if (on !== standsZ) { standsZ = on; syncStands(); shown.forEach(b => b.layer && b.layer.setStyle(styleOf(b))); drawLegend(); } });
 
 $("pipe").addEventListener("click", e => { const r = e.target.closest("[data-due]"); if (!r) return;
   S.due = S.due === r.dataset.due ? "" : r.dataset.due; update(); });
@@ -514,7 +603,7 @@ function syncControls() {
   $("f-colour").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === S.colour));
 }
 function update(zoomTo) {
-  syncControls(); syncStands(); syncInf(); draw(); summary(); drawLegend(); drawList(); writeHash();
+  syncControls(); syncStands(); syncInf(); syncDrive(); draw(); summary(); drawLegend(); drawList(); writeHash();
   if (zoomTo && shown.length && (S.region >= 0 || S.district >= 0)) {
     map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
     const go = () => map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});

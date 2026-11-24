@@ -131,6 +131,8 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
       <label>Carbon land<select id="f-nf"></select></label>
       <label class="full">Colour by<span class="seg" id="f-colour"></span></label>
       <label class="full">Also show<span class="seg" id="f-inf"><button type="button" data-v="">Nothing else</button><button type="button" data-v="1">Ports and mills</button></span></label>
+      <label class="full">Drive time from<span class="seg" id="f-dt"><button type="button" data-v="">Off</button><button type="button" data-v="ports">Ports</button><button type="button" data-v="saw">Sawmills</button><button type="button" data-v="mills">All mills</button></span></label>
+      <label id="dmbox" class="full" hidden>Within<select id="f-dm"><option value="15">15 min drive</option><option value="30">30 min drive</option><option value="45">45 min drive</option><option value="60">60 min drive</option></select></label>
     </div>
     <div class="sum"><span id="sum"></span><span class="sp"></span>
       <button class="lnk" id="reset" type="button">Clear</button><button class="lnk" id="csv" type="button">Download</button></div>
@@ -155,7 +157,8 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
     <tr><td>Tree height</td><td>LINZ lidar, flown 2013-2026 (year on each forest). Middle height of the block's 80 m cells, and the tallest tenth. Height on the day it was flown, not today. Forests with under 5% flown show none.</td></tr>
     <tr><td>Wood at harvest</td><td>MPI yield tables (NEFD 2015) for the region, radiata planted after 1989, age 28, pruned and unpruned. A regional average, not measured on the forest. No table for the West Coast.</td></tr>
     <tr><td>Ports</td><td>MPI forestry trade statistics, the last four quarters (Jul 2025 - Jun 2026), by port and product.</td></tr>
-    <tr><td>Mills</td><td>Log-buying mills with a dated 2025-26 sign they are running (news, company post or job ad), checked 24 Nov 2026. Small mills with no recent source are left out, so the list is not complete.</td></tr>
+    <tr><td>Mills</td><td>Mills with a dated 2025-26 sign they are running (news, company post or job ad), or a Google Maps listing marked open with a review in the last 12 months, checked 24 Nov 2026. Small mills with no recent source are left out, so the list is not complete.</td></tr>
+    <tr><td>Drive time</td><td>Car drive areas of 15-60 min around each port and mill (OpenStreetMap roads, Valhalla). A loaded log truck is slower, so treat these as best case. A forest counts when its middle is inside.</td></tr>
     <tr><td>FSC</td><td>Current certificates, read 23 Nov 2026.</td></tr>
     <tr><td>Owners</td><td>Land owner names are not shown (LINZ licence needed).</td></tr>
   </table>
@@ -165,6 +168,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=35"></script>
+<script src="forest.js?v=36"></script>
 </body>
 </html>
