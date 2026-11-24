@@ -175,6 +175,7 @@ function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])));
   for (const k of ["q", "colour", "inf", "dm", "np", "npa", "grp"]) if (p.has(k)) S[k] = p.get(k);
+  if (S.inf === "1") S.inf = "pm";                           // before 2026-11-25 one tick showed both
   if (p.has("tab")) S.grp = p.get("tab");                    // links from before 2026-11-25
   if (!["blocks", "district", "region", "managers"].includes(S.grp)) S.grp = "blocks";
   for (const k of FK) if (p.has(k)) S[k] = p.get(k).split(k === "fm" ? "|" : ",").filter(v => v !== "" && v !== "-1");   // old links held one value
@@ -459,7 +460,8 @@ let infKey = null;
 let dpick = false;
 const placeKey = (g, n) => (g === "ports" ? "p:" : "m:") + n;
 const ticked = k => S.dp.includes(k);
-const infShow = kind => !!S.inf || dpick;
+// S.inf: "p" ports, "m" mills, "pm" both (Mike 2026-11-25: ports and mills ticked apart, in the same box as drive time)
+const infShow = g => S.inf.includes(g === "ports" ? "p" : "m") || (dpick && !S.inf);
 const infOn = () => !!S.inf || dpick || S.dp.length > 0;
 function buildInf() {
   infKey = S.inf + dpick + S.dp.join("|");
@@ -467,7 +469,7 @@ function buildInf() {
   const pr = L.canvas({padding: .5});
   const mk = (ll, k, base, card, tip) => {
     const on = ticked(k);
-    if (!infShow() && !on) return;
+    if (!infShow(k[0] === "p" ? "ports" : "mills") && !on) return;
     const m = L.circleMarker(ll, {renderer: pr, ...base, ...(on ? {color: DRIVE_C, weight: 4, radius: base.radius + 2} : {}), bubblingMouseEvents: false})
       .bindTooltip(tip + (dpick ? `<br><i>${on ? "Click to untick" : "Click to tick for drive time"}</i>` : ""), {direction: "top"}).addTo(INF.layer);
     m.on("click", () => {
@@ -485,7 +487,7 @@ let infLoad = null;
 const loadInf = () => infLoad = infLoad || Promise.all([get("ports.json"), get("mills.json").then(d => d.mills).catch(() => [])])
   .then(([p, m]) => { INF.ports = p; INF.mills = m; buildInf(); });
 async function syncInf() {
-  $("t-inf").classList.toggle("on", !!S.inf); $("t-inf").setAttribute("aria-checked", String(!!S.inf));
+  for (const [id, c] of [["t-port", "p"], ["t-mill", "m"]]) { const on = S.inf.includes(c); $(id).classList.toggle("on", on); $(id).setAttribute("aria-checked", String(on)); }
   if (!infOn()) { map.removeLayer(INF.layer); return; }
   await loadInf();
   if (infKey !== S.inf + dpick + S.dp.join("|")) buildInf();
@@ -528,7 +530,8 @@ function syncDrive() {
 }
 const DtCtl = L.Control.extend({onAdd() {
   const d = L.DomUtil.create("div", "pinbox dtbox");
-  d.innerHTML = `<button id="dtbtn" type="button" title="Click, then click ports and mills on the map to tick them: only forests within the drive time of a ticked place are counted">Drive time</button>
+  d.innerHTML = `<div class="dtrow"><span class="ml">Show</span><button type="button" class="chk" id="t-port" role="checkbox" aria-checked="false"><i></i>Ports</button><button type="button" class="chk" id="t-mill" role="checkbox" aria-checked="false"><i></i>Mills</button></div>
+    <button id="dtbtn" type="button" title="Click, then click ports and mills on the map to tick them: only forests within the drive time of a ticked place are counted">Drive time</button>
     <select id="f-dm" aria-label="Drive time">${[15, 30, 45, 60].map(k => `<option value="${k}">${k} min</option>`).join("")}</select>
     <span id="dtcount" class="dtn"></span><button id="dtclear" type="button" hidden title="Untick all">✕</button>
     <div id="dthelp" class="dth" hidden>Click ports and mills to tick them, or tick all: <button type="button" data-all="ports">Ports</button><button type="button" data-all="saw">Sawmills</button><button type="button" data-all="mills">All mills</button><br>By car on OpenStreetMap roads, to the nearest edge of each forest. A loaded log truck is slower.</div>`;
@@ -583,15 +586,15 @@ async function syncNp(fly) {
 const ViewCtl = L.Control.extend({onAdd() {
   const d = L.DomUtil.create("div", "pinbox mapctl");
   d.innerHTML = `<button type="button" class="mtog" aria-expanded="false" aria-label="Colour and layers">View ▾</button><div class="mrow"><span class="ml">Colour by</span><span class="seg" id="f-colour">${[["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["ht", "Height"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("")}</span></div>
-    <div class="mrow"><span class="ml">Show</span><button type="button" class="chk" id="t-inf" role="checkbox" aria-checked="false"><i></i>Ports and mills</button>
-      <button type="button" class="chk" id="t-np" role="checkbox" aria-checked="false"><i></i>New planting (pilot)</button><button type="button" class="chk" id="t-npa" role="checkbox" aria-checked="false" hidden><i></i>Areas checked</button><button type="button" class="info" id="npinfo" aria-expanded="false" aria-label="About new planting">i</button></div>
+    <div class="mrow"><span class="ml">Show</span>      <button type="button" class="chk" id="t-np" role="checkbox" aria-checked="false"><i></i>New planting (pilot)</button><button type="button" class="chk" id="t-npa" role="checkbox" aria-checked="false" hidden><i></i>Areas checked</button><button type="button" class="info" id="npinfo" aria-expanded="false" aria-label="About new planting">i</button></div>
     <div class="dth" id="npinfotxt" hidden>A first test in Central Hawke's Bay only: forest seen on the 2025-26 LINZ aerial photos that the land-cover map does not show, read from the photos by AI in 1 ha squares.</div>`;
   d.querySelector(".mtog").addEventListener("click", e => { const o = d.classList.toggle("open"); e.currentTarget.setAttribute("aria-expanded", o); });   // phones: folded
   L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
   return d; }});
 new ViewCtl({position: "topright"}).addTo(map);
 $("f-colour").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { S.colour = b.dataset.v; update(); } });
-$("t-inf").addEventListener("click", () => { S.inf = S.inf ? "" : "1"; syncInf(); drawLegend(); writeHash(); });
+for (const [id, c] of [["t-port", "p"], ["t-mill", "m"]]) $(id).addEventListener("click", () => {
+  S.inf = ["p", "m"].filter(x => x === c ? !S.inf.includes(x) : S.inf.includes(x)).join(""); syncInf(); drawLegend(); writeHash(); });
 $("t-np").addEventListener("click", () => { S.np = S.np ? "" : "1"; syncNp(!!S.np); drawLegend(); writeHash(); });
 $("t-npa").addEventListener("click", () => { S.npa = S.npa ? "" : "1"; syncNp(false); drawLegend(); writeHash(); });
 $("npinfo").addEventListener("click", () => { const t = $("npinfotxt"); t.hidden = !t.hidden; $("npinfo").setAttribute("aria-expanded", String(!t.hidden)); });
@@ -610,8 +613,8 @@ function drawLegend() {
     : S.colour === "nf" ? Object.keys(NF).map(l => k(C.nf[l], NF[l])).join("") + k(VIZ.none, "Mānuka / kānuka")
     : S.colour === "ht" ? `<div class="lh">${heightsOn() ? "Height today (estimated), each 80 m patch" : "Height today (estimated), middle of block"}</div>` + HT_TEXT.map((n, i) => k(C.ht[i], n)).reverse().join("") + k(VIZ.none, "No lidar yet")
     : KIND.map((n, i) => k(C.kind[i], n)).join("")))
-    + (infOn() ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + k(PORT_C, "Export port (size = logs)", 1)
-      + (INF.mills && INF.mills.length ? k(MILL_C, "Mill", 1) : "") + (S.dp.length ? `<div class="k"><i style="background:transparent;border:3px solid ${DRIVE_C};border-radius:50%"></i>Ticked for drive time</div>` : "") : "")
+    + (infOn() ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + (infShow("ports") || S.dp.some(x => x[0] === "p") ? k(PORT_C, "Export port (size = logs)", 1) : "")
+      + (INF.mills && INF.mills.length && (infShow("mills") || S.dp.some(x => x[0] === "m")) ? k(MILL_C, "Mill", 1) : "") + (S.dp.length ? `<div class="k"><i style="background:transparent;border:3px solid ${DRIVE_C};border-radius:50%"></i>Ticked for drive time</div>` : "") : "")
     + (S.dp.length ? k(DRIVE_C + "40", `Within ${S.dm} min drive of ${dpLabel()}`) : "")
     + (S.np && NP.d ? `<div class="lh" style="margin-top:4px">Aerial photos 2025-26 (pilot)</div>` + k(NP_C.young, NP_T.young) + k(NP_C.older, NP_T.older) + (S.npa ? `<div class="k"><i style="background:transparent;border:1.5px dashed ${NP_C.young}"></i>Area checked on the photos</div>` : "") : "");
 }
