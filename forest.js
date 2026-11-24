@@ -168,7 +168,7 @@ function syncMask() {                 // patches follow the list whenever a filt
 // ------------------------------------------------------------------ state (kept in the address bar)
 // Mike 2026-11-25: filters "like AquilaLens" - a list of filter tabs on the left, each opens to every option with a tick box
 // and a live count; ticks inside a tab widen ("this OR that"), tabs narrow each other. Results grouped on the right.
-const FK = ["kind", "due", "region", "district", "size", "fm", "nf", "ht", "fsc"];   // "How the manager is known" dropped (Mike 2026-11-25); old mgr= links ignored       // the tick filters (lists)
+const FK = ["kind", "due", "region", "district", "size", "fm", "nf", "ht"];   // "How the manager is known" dropped (Mike 2026-11-25); old mgr= links ignored; Certification dropped too (Mike: Manager already shows FSC)       // the tick filters (lists)
 const S = {};
 const BLANK = {q: "", colour: "due", grp: "blocks", pin: null, km: 25, inf: "", dp: [], dm: "60", np: "", npa: "", ...Object.fromEntries(FK.map(k => [k, []]))};
 function readHash() {
@@ -177,7 +177,7 @@ function readHash() {
   for (const k of ["q", "colour", "inf", "dm", "np", "npa", "grp"]) if (p.has(k)) S[k] = p.get(k);
   if (S.inf === "1") S.inf = "pm";                           // before 2026-11-25 one tick showed both
   if (p.has("tab")) S.grp = p.get("tab");                    // links from before 2026-11-25
-  if (!["blocks", "district", "region", "managers"].includes(S.grp)) S.grp = "blocks";
+  if (!["blocks", "district", "region", "managers", "charts"].includes(S.grp)) S.grp = "blocks";
   for (const k of FK) if (p.has(k)) S[k] = p.get(k).split(k === "fm" ? "|" : ",").filter(v => v !== "" && v !== "-1");   // old links held one value
   if (p.has("km")) S.km = /^d\d+$/.test(p.get("km")) ? p.get("km") : +p.get("km") || 25;   // "d30" = a 30 min drive
   S.pin = p.get("pin") ? p.get("pin").split(",").map(Number) : null;
@@ -221,7 +221,6 @@ const FACETS = [
     opts: () => Object.entries(NF_FILTER), test: (b, k) => k === "post" ? enough(b.nf[0], b, 50) : enough(b.nf[1], b, 20)},
   {id: "ht", title: "Height today", note: "Estimated from LINZ lidar grown on to today, middle of the forest.",
     opts: () => [...HT_TEXT.map((t, i) => [String(i), t]).reverse(), ["none", "No lidar yet"]], test: (b, k) => k === "none" ? b.hts < 0 : b.hts === +k},
-  {id: "fsc", title: "Certification", opts: () => [["fsc", "Manager is FSC certified"], ["no", "No FSC certificate found"]], test: (b, k) => (k === "fsc") === b.fsc},
 ];
 const FBY = Object.fromEntries(FACETS.map(f => [f.id, f]));
 let openF = null; const finds = {};
@@ -627,9 +626,6 @@ const LIST_MAX = 200;
 function summary() {
   const ha = shown.reduce((s, b) => s + b.ha, 0);
   $("sum").innerHTML = `<b>${fmt(shown.length)}</b> forests · <b>${fmt(ha)}</b> ha${S.pin ? ` · ${pinLabel()}` : ""}${S.dp.length ? ` · within ${S.dm} min drive of ${esc(dpLabel())}` : ""}`;
-  const due = HG.map((_, i) => shown.reduce((s, b) => s + (b.k === 0 ? b.hg[i] : 0), 0)), top = Math.max(...due, 1);
-  $("pipe").innerHTML = due.some(v => v) ? `<div class="ph">Plantation harvest due, ha (click to filter)</div>` + HG.map((n, i) =>
-    `<div class="pr${S.due.includes(String(i)) ? " on" : ""}" data-due="${i}"><span class="pl">${n}</span><span class="pb"><span style="width:${due[i] / top * 100}%;background:${C.hg[i]}"></span></span><span class="pn">${fmt(due[i])}</span></div>`).join("") : "";
 }
 function listBlocks() {
   let bb = null; try { bb = map.getBounds(); } catch (e) { /* map not sized yet (hidden tab): list them all */ }
@@ -710,9 +706,58 @@ function listPlaces(id) {
         <span class="m"><div class="t">${esc(name[a.k] || "")}${id === "district" && R[blocks.find(b => b.d === a.k).r] ? ` <span class="w">${esc(R[blocks.find(b => b.d === a.k).r])}</span>` : ""}</div>
         <div class="s">${fmt(a.n)} forest${a.n > 1 ? "s" : ""}${a.due ? ` · ${fmt(a.due)} ha due by 2033` : ""}</div></span><span class="n">${fmt(a.ha)} ha</span></div>`; }).join("");
 }
+// Charts view (Mike 2026-11-25: the harvest bars moved here, "make it look cool"): Chart.js 4 (MIT), loaded only when opened.
+// Each chart sums the forests that pass the filters; a click on a bar ticks that filter.
+let chartLib = null; const charts = [];
+const loadCharts = () => chartLib = chartLib || new Promise((ok, no) => { const t = document.createElement("script");
+  t.src = "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"; t.onload = ok; t.onerror = no; document.head.appendChild(t); });
+function listCharts() {
+  const pl = shown.filter(b => b.k === 0);
+  const due = HG.map((_, i) => pl.reduce((s, b) => s + b.hg[i], 0));
+  const pid = S.region.length === 1 ? "district" : "region", pk = pid === "district" ? b => b.d : b => b.r, pn = pid === "district" ? D : R;   // one region picked: its districts
+  const byR = new Map(); shown.forEach(b => byR.set(pk(b), (byR.get(pk(b)) || 0) + b.ha));
+  const regs = [...byR].filter(x => x[0] >= 0).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const byF = new Map(); shown.forEach(b => b.fk.forEach(f => byF.set(f, (byF.get(f) || 0) + b.ha)));
+  const firms = [...byF].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const ht = HT_TEXT.map((_, i) => shown.reduce((s, b) => s + (b.hts === i ? b.ha : 0), 0));
+  const kind = KIND.map((_, i) => shown.reduce((s, b) => s + (b.k === i ? b.ha : 0), 0));
+  const tot = kind.reduce((a, b) => a + b, 0), known = shown.reduce((s, b) => s + (b.fk.size ? b.ha : 0), 0);
+  const card = (id, h, title, sub) => `<div class="chc"><div class="cht">${title}</div>${sub ? `<div class="chs">${sub}</div>` : ""}<div style="height:${h}px"><canvas id="${id}"></canvas></div></div>`;
+  const html = `<div class="chk2">
+      <div class="kpi"><b>${fmt(shown.length)}</b><span>forests</span></div><div class="kpi"><b>${fmt(tot)}</b><span>ha</span></div>
+      <div class="kpi"><b>${fmt(due[0] + due[1])}</b><span>ha due by 2033</span></div><div class="kpi"><b>${tot ? Math.round(known / tot * 100) : 0}%</b><span>with a known manager</span></div></div>`
+    + card("ch-due", 190, "Plantation harvest due, ha", "Click a bar to filter")
+    + card("ch-reg", 26 * regs.length + 30, `Forest area by ${pid}, ha`, regs.length > 1 ? "Top " + regs.length + ", click to filter" : "")
+    + card("ch-firm", 26 * firms.length + 30, "Biggest managers, ha", firms.length ? "Forests named to the firm, click to filter" : "No managers matched")
+    + card("ch-ht", 170, "Height today, ha", "Estimated from lidar, click to filter")
+    + card("ch-kind", 150, "Type, ha", "");
+  setTimeout(() => loadCharts().then(() => {
+    charts.splice(0).forEach(c => c.destroy());
+    if (S.grp !== "charts" || !$("ch-due")) return;
+    const cs = getComputedStyle(document.body), ink = cs.getPropertyValue("--ol-text2").trim() || "#555", grid = cs.getPropertyValue("--ol-line").trim() || "#ddd";
+    Chart.defaults.color = ink; Chart.defaults.font.family = cs.fontFamily; Chart.defaults.font.size = 11;
+    const opt = (horiz, onPick) => ({indexAxis: horiz ? "y" : "x", maintainAspectRatio: false, animation: {duration: 500},
+      plugins: {legend: {display: false}, tooltip: {callbacks: {label: c => " " + fmt(c.raw) + " ha"}}},
+      scales: {[horiz ? "x" : "y"]: {grid: {color: grid}, ticks: {callback: v => v >= 1000 ? fmt(v / 1000) + "k" : v}}, [horiz ? "y" : "x"]: {grid: {display: false}}},
+      onClick: (e, el) => el.length && onPick(el[0].index), onHover: (e, el) => e.native.target.style.cursor = el.length ? "pointer" : ""});
+    const bar = (id, labels, data, colours, horiz, onPick) => charts.push(new Chart($(id), {type: "bar",
+      data: {labels, datasets: [{data, backgroundColor: colours, borderRadius: 4, maxBarThickness: 34}]}, options: opt(horiz, onPick)}));
+    const cut = t => t.length > 24 ? t.slice(0, 23).trim() + "…" : t;
+    const fade = (on, c) => on ? c : c + "55";
+    bar("ch-due", HG, due, C.hg.map((c, i) => fade(!S.due.length || S.due.includes(String(i)), c)), false, i => tick("due", String(i)));
+    bar("ch-reg", regs.map(x => cut(pn[x[0]])), regs.map(x => x[1]), regs.map(x => fade(!S[pid].length || S[pid].includes(String(x[0])), C.kind[0])), true, i => tick(pid, String(regs[i][0])));
+    if (firms.length) bar("ch-firm", firms.map(x => cut(firmLabel(x[0]))), firms.map(x => x[1]), firms.map(x => fade(!S.fm.length || S.fm.includes(x[0]), DRIVE_C)), true, i => { tick("fm", firms[i][0]); });
+    bar("ch-ht", HT_TEXT, ht, C.ht.map((c, i) => fade(!S.ht.length || S.ht.includes(String(i)), c)), false, i => tick("ht", String(i)));
+    charts.push(new Chart($("ch-kind"), {type: "doughnut", data: {labels: KIND, datasets: [{data: kind, backgroundColor: C.kind, borderWidth: 0}]},
+      options: {maintainAspectRatio: false, cutout: "62%", plugins: {legend: {position: "right"}, tooltip: {callbacks: {label: c => " " + c.label + ": " + fmt(c.raw) + " ha"}}},
+        onClick: (e, el) => el.length && tick("kind", String(el[0].index))}}));
+  }).catch(() => { const x = $("ch-due"); if (x) x.parentNode.innerHTML = `<div class="more">Charts could not load.</div>`; }), 0);
+  return html;
+}
 function drawList() {
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.grp));
-  $("list").innerHTML = S.grp === "managers" ? listManagers() : S.grp === "district" || S.grp === "region" ? listPlaces(S.grp) : listBlocks();
+  if (S.grp !== "charts") charts.splice(0).forEach(c => c.destroy());
+  $("list").innerHTML = S.grp === "managers" ? listManagers() : S.grp === "district" || S.grp === "region" ? listPlaces(S.grp) : S.grp === "charts" ? listCharts() : listBlocks();
 }
 $("list").addEventListener("click", e => {
   if (e.target.closest("a")) return;
@@ -728,8 +773,6 @@ map.on("moveend", () => { if (S.grp === "blocks") drawList(); });
 let standsZ = null;
 map.on("zoomend", () => { const on = standsOn() + "" + heightsOn() + (map.getZoom() >= LINE_Z); if (on !== standsZ) { standsZ = on; syncStands(); shown.forEach(b => b.layer && b.layer.setStyle(styleOf(b))); drawLegend(); } });
 
-$("pipe").addEventListener("click", e => { const r = e.target.closest("[data-due]"); if (!r) return;
-  tick("due", r.dataset.due); });
 
 // ------------------------------------------------------------------ download what is filtered
 $("csv").addEventListener("click", () => {

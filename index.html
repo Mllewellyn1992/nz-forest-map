@@ -104,6 +104,13 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 .tag.chg{background:var(--viz-sale-now-tint);color:var(--viz-sale-now-text)}
 #pipe{padding:6px 16px 10px;border-bottom:1px solid var(--ol-line)}
 #pipe:empty{display:none}
+.chk2{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px 14px 4px}
+.kpi{background:var(--ol-paper);border:1px solid var(--ol-line);border-radius:var(--ol-r-lg);padding:8px 10px;display:flex;flex-direction:column}
+.kpi b{font-size:19px;color:var(--ol-ink);font-variant-numeric:tabular-nums;line-height:1.2}
+.kpi span{font-size:11.5px;color:var(--ol-muted)}
+.chc{margin:10px 14px;padding:10px 10px 8px;background:var(--ol-paper);border:1px solid var(--ol-line);border-radius:var(--ol-r-lg)}
+.cht{font-size:13px;font-weight:600;color:var(--ol-ink)}
+.chs{font-size:11.5px;color:var(--ol-muted);margin-bottom:4px}
 #pipe .ph{font-size:12px;font-weight:600;color:var(--ol-text2);margin-bottom:3px}
 #pipe .pr{display:grid;grid-template-columns:96px 1fr 70px;gap:8px;align-items:center;font-size:12.5px;padding:2px 4px;margin:0 -4px;border-radius:3px;cursor:pointer}
 #pipe .pr:hover{background:var(--ol-chip)}
@@ -185,12 +192,12 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
   <aside id="res">
     <div class="sum"><span id="sum"></span><span class="sp"></span>
       <button class="lnk" id="reset" type="button">Clear</button><button class="lnk" id="csv" type="button">Download</button></div>
-    <div id="pipe"></div>
     <div class="tabs" role="tablist" aria-label="Group by">
       <button class="on" data-tab="blocks" type="button">Forests</button>
       <button data-tab="district" type="button">District</button>
       <button data-tab="region" type="button">Region</button>
       <button data-tab="managers" type="button">Manager</button>
+      <button data-tab="charts" type="button">Charts</button>
     </div>
     <div id="list"></div>
   </aside>
@@ -219,6 +226,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=49"></script>
+<script src="forest.js?v=50"></script>
 </body>
 </html>
