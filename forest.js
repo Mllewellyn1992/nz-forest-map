@@ -170,11 +170,11 @@ function syncMask() {                 // patches follow the list whenever a filt
 // and a live count; ticks inside a tab widen ("this OR that"), tabs narrow each other. Results grouped on the right.
 const FK = ["kind", "due", "region", "district", "size", "fm", "mgr", "nf", "ht", "fsc"];       // the tick filters (lists)
 const S = {};
-const BLANK = {q: "", colour: "due", grp: "blocks", pin: null, km: 25, inf: "", dp: [], dm: "60", np: "", ...Object.fromEntries(FK.map(k => [k, []]))};
+const BLANK = {q: "", colour: "due", grp: "blocks", pin: null, km: 25, inf: "", dp: [], dm: "60", np: "", npa: "", ...Object.fromEntries(FK.map(k => [k, []]))};
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])));
-  for (const k of ["q", "colour", "inf", "dm", "np", "grp"]) if (p.has(k)) S[k] = p.get(k);
+  for (const k of ["q", "colour", "inf", "dm", "np", "npa", "grp"]) if (p.has(k)) S[k] = p.get(k);
   if (p.has("tab")) S.grp = p.get("tab");                    // links from before 2026-11-25
   if (!["blocks", "district", "region", "managers"].includes(S.grp)) S.grp = "blocks";
   for (const k of FK) if (p.has(k)) S[k] = p.get(k).split(k === "fm" ? "|" : ",").filter(v => v !== "" && v !== "-1");   // old links held one value
@@ -184,7 +184,7 @@ function readHash() {
 }
 function writeHash() {
   const p = new URLSearchParams();
-  for (const k of ["q", "colour", "grp", "inf", "dm", "np"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
+  for (const k of ["q", "colour", "grp", "inf", "dm", "np", "npa"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
   for (const k of FK) if (S[k].length) p.set(k, S[k].join(k === "fm" ? "|" : ","));
   if (S.dp.length) p.set("dp", S.dp.join("|"));
   if (S.pin) { p.set("pin", S.pin.map(v => v.toFixed(4)).join(",")); p.set("km", S.km); }
@@ -265,7 +265,7 @@ $("filters").addEventListener("input", e => { if (e.target.id !== "ffind") retur
   drawFilters(); const ff = $("ffind"); ff.focus(); ff.setSelectionRange(pos, pos); });
 let qt;
 $("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { S.q = $("q").value.trim(); update(); }, 200); });
-$("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, np = S.np; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, np}); $("q").value = "";
+$("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, np = S.np, npa = S.npa; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, np, npa}); $("q").value = "";
   setPin(null); update(); olFitNZ(map); });
 $("aboutbtn").addEventListener("click", () => $("about").classList.add("on"));
 $("aboutclose").addEventListener("click", () => $("about").classList.remove("on"));
@@ -555,14 +555,14 @@ loadDrive(); loadInf();          // both small: the forest card uses them for it
 
 // ------------------------------------------------------------------ new planting, aerial pilot (Mike 2026-11-25 "add the layer to the map")
 // 1 ha squares marked by Claude on 2025-26 LINZ aerial photos, Central Hawke's Bay only; built by code/newplant_layer.py
-const NP = {d: null, layer: L.layerGroup()};
+const NP = {d: null, layer: L.layerGroup(), read: L.layerGroup()};   // read = outline of the photos checked, off unless ticked (Mike 2026-11-25)
 map.createPane("np").style.zIndex = 450;                                  // over the forests
 const npRnd = L.canvas({pane: "np", padding: .5});
 const NP_C = {young: dark ? "#ff6fd8" : "#c2187a", older: dark ? "#4fd8e8" : "#0a7f94"};
 const NP_T = {young: "Young planting", older: "Older pine stand, not mapped"};
 let npLoad = null;
 const loadNp = () => npLoad = npLoad || get("newplant.json").then(d => { NP.d = d;
-  d.area.forEach(r => L.polygon(r, {renderer: npRnd, color: NP_C.young, weight: 1.5, dashArray: "5 5", fill: false, interactive: false}).addTo(NP.layer));
+  d.area.forEach(r => L.polygon(r, {renderer: npRnd, color: NP_C.young, weight: 1.5, dashArray: "5 5", fill: false, interactive: false}).addTo(NP.read));
   for (const k of ["young", "older"]) d[k].forEach(([ha, r]) => L.polygon(r, {renderer: npRnd, color: NP_C[k], weight: 1.5, fillColor: NP_C[k], fillOpacity: .35})
     .bindTooltip(`${NP_T[k]} ~${fmt(ha)} ha`, {direction: "top"})
     .bindPopup(`<div class="card"><h3>${NP_T[k]}, about ${fmt(ha)} ha</h3><div class="s">${k === "young" ? "Rows of small trees or fresh planting spots" : "A planted stand"} on the ${esc(d.read.photos)} photos, not on the 2023/24 land-cover map. Read by AI in 1 ha squares; a pilot, not checked on the ground.</div></div>`, {maxWidth: 300})
@@ -570,10 +570,12 @@ const loadNp = () => npLoad = npLoad || get("newplant.json").then(d => { NP.d = 
   return d; }).catch(() => null);
 async function syncNp(fly) {
   $("t-np").classList.toggle("on", !!S.np); $("t-np").setAttribute("aria-checked", String(!!S.np));
+  $("t-npa").hidden = !S.np; $("t-npa").classList.toggle("on", !!S.npa); $("t-npa").setAttribute("aria-checked", String(!!S.npa));
+  if (!S.np || !S.npa) map.removeLayer(NP.read);
   if (!S.np) { map.removeLayer(NP.layer); return; }
   await loadNp();
   if (!S.np || !NP.d) return;
-  NP.layer.addTo(map); drawLegend();
+  NP.layer.addTo(map); if (S.npa) NP.read.addTo(map); drawLegend();
   if (fly) map.flyToBounds(L.polygon(NP.d.area.map(r => r[0])).getBounds(), {padding: [20, 20]});
 }
 
@@ -582,7 +584,7 @@ const ViewCtl = L.Control.extend({onAdd() {
   const d = L.DomUtil.create("div", "pinbox mapctl");
   d.innerHTML = `<button type="button" class="mtog" aria-expanded="false" aria-label="Colour and layers">View ▾</button><div class="mrow"><span class="ml">Colour by</span><span class="seg" id="f-colour">${[["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["ht", "Height"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("")}</span></div>
     <div class="mrow"><span class="ml">Show</span><button type="button" class="chk" id="t-inf" role="checkbox" aria-checked="false"><i></i>Ports and mills</button>
-      <button type="button" class="chk" id="t-np" role="checkbox" aria-checked="false"><i></i>New planting (pilot)</button><button type="button" class="info" id="npinfo" aria-expanded="false" aria-label="About new planting">i</button></div>
+      <button type="button" class="chk" id="t-np" role="checkbox" aria-checked="false"><i></i>New planting (pilot)</button><button type="button" class="chk" id="t-npa" role="checkbox" aria-checked="false" hidden><i></i>Areas checked</button><button type="button" class="info" id="npinfo" aria-expanded="false" aria-label="About new planting">i</button></div>
     <div class="dth" id="npinfotxt" hidden>A first test in Central Hawke's Bay only: forest seen on the 2025-26 LINZ aerial photos that the land-cover map does not show, read from the photos by AI in 1 ha squares.</div>`;
   d.querySelector(".mtog").addEventListener("click", e => { const o = d.classList.toggle("open"); e.currentTarget.setAttribute("aria-expanded", o); });   // phones: folded
   L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
@@ -591,6 +593,7 @@ new ViewCtl({position: "topright"}).addTo(map);
 $("f-colour").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { S.colour = b.dataset.v; update(); } });
 $("t-inf").addEventListener("click", () => { S.inf = S.inf ? "" : "1"; syncInf(); drawLegend(); writeHash(); });
 $("t-np").addEventListener("click", () => { S.np = S.np ? "" : "1"; syncNp(!!S.np); drawLegend(); writeHash(); });
+$("t-npa").addEventListener("click", () => { S.npa = S.npa ? "" : "1"; syncNp(false); drawLegend(); writeHash(); });
 $("npinfo").addEventListener("click", () => { const t = $("npinfotxt"); t.hidden = !t.hidden; $("npinfo").setAttribute("aria-expanded", String(!t.hidden)); });
 
 // ------------------------------------------------------------------ legend
@@ -610,7 +613,7 @@ function drawLegend() {
     + (infOn() ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + k(PORT_C, "Export port (size = logs)", 1)
       + (INF.mills && INF.mills.length ? k(MILL_C, "Mill", 1) : "") + (S.dp.length ? `<div class="k"><i style="background:transparent;border:3px solid ${DRIVE_C};border-radius:50%"></i>Ticked for drive time</div>` : "") : "")
     + (S.dp.length ? k(DRIVE_C + "40", `Within ${S.dm} min drive of ${dpLabel()}`) : "")
-    + (S.np && NP.d ? `<div class="lh" style="margin-top:4px">Aerial photos 2025-26 (pilot)</div>` + k(NP_C.young, NP_T.young) + k(NP_C.older, NP_T.older) : "");
+    + (S.np && NP.d ? `<div class="lh" style="margin-top:4px">Aerial photos 2025-26 (pilot)</div>` + k(NP_C.young, NP_T.young) + k(NP_C.older, NP_T.older) + (S.npa ? `<div class="k"><i style="background:transparent;border:1.5px dashed ${NP_C.young}"></i>Area checked on the photos</div>` : "") : "");
 }
 
 // ------------------------------------------------------------------ side panel
