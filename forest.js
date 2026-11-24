@@ -32,7 +32,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 44;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 45;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const tileIndex = d => fetch(d + "/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -515,7 +515,7 @@ const NP = {d: null, layer: L.layerGroup()};
 map.createPane("np").style.zIndex = 450;                                  // over the forests
 const npRnd = L.canvas({pane: "np", padding: .5});
 const NP_C = {young: dark ? "#ff6fd8" : "#c2187a", older: dark ? "#4fd8e8" : "#0a7f94"};
-const NP_T = {young: "Young planting", older: "Older stand, not mapped"};
+const NP_T = {young: "Young planting", older: "Older pine stand, not mapped"};
 let npLoad = null;
 const loadNp = () => npLoad = npLoad || get("newplant.json").then(d => { NP.d = d;
   d.area.forEach(r => L.polygon(r, {renderer: npRnd, color: NP_C.young, weight: 1.5, dashArray: "5 5", fill: false, interactive: false}).addTo(NP.layer));

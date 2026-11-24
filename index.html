@@ -169,7 +169,7 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
     <tr><td>Ports</td><td>MPI forestry trade statistics, the last four quarters (Jul 2025 - Jun 2026), by port and product.</td></tr>
     <tr><td>Mills</td><td>Mills with a dated 2025-26 sign they are running (news, company post or job ad), or a Google Maps listing marked open with a review in the last 12 months, checked 24 Nov 2026. Small mills with no recent source are left out, so the list is not complete.</td></tr>
     <tr><td>Drive time</td><td>Car drive areas of 15-60 min around each port and mill (OpenStreetMap roads, Valhalla). A loaded log truck is slower, so treat these as best case. A forest counts when the drive area reaches any part of it (its nearest edge).</td></tr>
-    <tr><td>New planting</td><td>Pilot, Central Hawke's Bay hill farmland only (the dashed squares, about 1,000 km²). Each 2 km square of the 2025-26 LINZ aerial photos (0.2 m, shown at 1.33 m) was read by an AI model (Claude) for planted forest outside the mapped forests, then marked in 1 ha squares: young planting (rows of small trees or fresh planting spots) and older stands the land-cover map missed. Checked by eye on a sample; edges are blocky (100 m) and some older stands are missed.</td></tr>
+    <tr><td>New planting</td><td>Pilot, Central Hawke's Bay hill farmland only (the dashed squares, about 1,000 km²). Each 2 km square of the 2025-26 LINZ aerial photos (0.2 m, shown at 1.33 m) was read by an AI model (Claude) for planted forest outside the mapped forests, then marked in 1 ha squares: young planting (rows of small trees or fresh planting spots) and older pine stands the land-cover map missed (each older stand checked on close-up photos; native bush taken out). Edges are blocky (100 m) and some stands are missed.</td></tr>
     <tr><td>FSC</td><td>Current certificates, read 23 Nov 2026.</td></tr>
     <tr><td>Owners</td><td>Land owner names are not shown (LINZ licence needed).</td></tr>
   </table>
@@ -179,6 +179,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=44"></script>
+<script src="forest.js?v=45"></script>
 </body>
 </html>
