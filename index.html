@@ -12,14 +12,14 @@
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{margin:0;height:100%;background:var(--ol-page);color:var(--ol-text);font:14px/1.4 var(--ol-font)}
-#app{display:grid;grid-template-columns:290px minmax(0,1fr) 360px;grid-template-areas:"side map res";height:100vh;height:100dvh}
+#app{display:grid;grid-template-columns:304px minmax(0,1fr) 360px;grid-template-areas:"side map res";height:100vh;height:100dvh}
 .pcol{position:absolute;top:50%;z-index:1000;transform:translateY(-50%);width:18px;height:56px;border:1px solid var(--ol-line2);background:var(--ol-card);
   color:var(--ol-text2);font:600 15px/1 var(--ol-font);cursor:pointer;padding:0;box-shadow:0 1px 4px rgba(0,0,0,.15)}
 .pcol:hover{background:var(--ol-chip);color:var(--ol-ink)}
 .pcol.l{left:0;border-left:0;border-radius:0 8px 8px 0}
 .pcol.r{right:0;border-right:0;border-radius:8px 0 0 8px}
 @media (min-width:1181px){
-  #app.noside{grid-template-columns:0 minmax(0,1fr) 360px} #app.nores{grid-template-columns:290px minmax(0,1fr) 0}
+  #app.noside{grid-template-columns:0 minmax(0,1fr) 360px} #app.nores{grid-template-columns:304px minmax(0,1fr) 0}
   #app.noside.nores{grid-template-columns:0 minmax(0,1fr) 0}
   #app.noside #side,#app.nores #res{display:none}
 }
@@ -35,11 +35,11 @@ html,body{margin:0;height:100%;background:var(--ol-page);color:var(--ol-text);fo
 #map{grid-area:map}
 .qbox{padding:6px 12px 8px}
 #filters{flex:1;padding:0 6px 10px}
-.ft{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--ol-line);padding:9px 8px;cursor:pointer;font:inherit;color:var(--ol-text)}
+.ft{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--ol-line);padding:7px 8px;cursor:pointer;font:inherit;color:var(--ol-text)}
 .ft:hover{background:var(--ol-chip)}
 .ftm{flex:1;min-width:0;display:flex;flex-direction:column}
-.ftt{font-weight:600;color:var(--ol-ink);font-size:13.5px}
-.fts{font-size:12.5px;color:var(--ol-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ftt{font-weight:600;color:var(--ol-ink);font-size:12.5px}
+.fts{font-size:11.5px;color:var(--ol-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ft.set .fts{color:var(--ol-charcoal);font-weight:500}
 .ftt em,.fti em{font-style:normal;background:var(--ol-charcoal);color:var(--ol-card);border-radius:9px;padding:0 6px;font-size:11px;vertical-align:1px}
 .ft .chev,.it .chev{color:var(--ol-faint)}
@@ -49,7 +49,7 @@ html,body{margin:0;height:100%;background:var(--ol-page);color:var(--ol-text);fo
 .fnote{margin:0 8px 6px;font-size:12px;color:var(--ol-muted)}
 #ffind{margin:2px 6px 8px;width:calc(100% - 12px)}
 .fhd{margin:10px 8px 3px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ol-muted)}
-.fo{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:var(--ol-r-lg);cursor:pointer;user-select:none;font-size:13.5px}
+.fo{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:var(--ol-r-lg);cursor:pointer;user-select:none;font-size:12.5px}
 .fo:hover{background:var(--ol-chip)}
 .fo.on{background:var(--ol-chip);font-weight:600}
 .fo.zero{color:var(--ol-faint)}
@@ -64,7 +64,7 @@ html,body{margin:0;height:100%;background:var(--ol-page);color:var(--ol-text);fo
 .chk[hidden]{display:none}
 #map{height:100%;background:var(--ol-page)}
 .head{padding:14px 16px 4px;display:flex;align-items:baseline;justify-content:space-between;gap:8px}
-.head h1{margin:0;font-size:17px;font-weight:600;color:var(--ol-ink)}
+.head h1{margin:0;font-size:15px;font-weight:600;color:var(--ol-ink)}
 .filters{padding:8px 16px 12px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .filters .full{grid-column:1/-1}
 .filters .lbl{font-size:12px;font-weight:600;color:var(--ol-text2);display:flex;align-items:center;gap:6px;margin-bottom:-6px}
@@ -72,30 +72,30 @@ html,body{margin:0;height:100%;background:var(--ol-page);color:var(--ol-text);fo
 .info[aria-expanded=true]{background:var(--ol-charcoal);color:var(--ol-card);border-color:var(--ol-charcoal)}
 .infotxt{font-size:12.5px;color:var(--ol-text2);background:var(--ol-paper);border:1px solid var(--ol-line);border-radius:var(--ol-r-lg);padding:6px 8px}
 .filters label{display:grid;gap:2px;font-size:12px;font-weight:600;color:var(--ol-text2)}
-select,input[type=search]{font:13.5px var(--ol-font);color:var(--ol-text);background:var(--ol-paper);border:1px solid var(--ol-line2);
+select,input[type=search]{font:12.5px var(--ol-font);color:var(--ol-text);background:var(--ol-paper);border:1px solid var(--ol-line2);
   border-radius:var(--ol-r-lg);padding:6px 8px;width:100%;min-width:0}
 select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight:600}
 .seg{display:flex;border:1px solid var(--ol-line2);border-radius:var(--ol-r-lg);overflow:hidden}
 .seg button{flex:1;border:0;background:var(--ol-paper);color:var(--ol-body);font:500 13px var(--ol-font);padding:6px 4px;cursor:pointer}
 .seg button+button{border-left:1px solid var(--ol-line2)}
 .seg button.on{background:var(--ol-charcoal);color:var(--ol-card);font-weight:600}
-.sum{padding:8px 16px;background:var(--ol-paper);border-top:1px solid var(--ol-line);border-bottom:1px solid var(--ol-line);
-  font-size:13.5px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.sum{padding:8px 12px;white-space:nowrap;background:var(--ol-paper);border-top:1px solid var(--ol-line);border-bottom:1px solid var(--ol-line);
+  font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:nowrap}
 .sum b{color:var(--ol-ink)}
 .sum .sp{flex:1}
 .lnk{background:none;border:0;padding:0;color:var(--ol-charcoal);font:600 13px var(--ol-font);cursor:pointer;text-decoration:underline}
 .tabs{display:flex;border-bottom:1px solid var(--ol-line);position:sticky;top:0;background:var(--ol-card);z-index:2}
-.tabs button{flex:1;background:none;border:0;border-bottom:2px solid transparent;padding:9px 4px;font:600 13px var(--ol-font);
+.tabs button{flex:1;background:none;border:0;border-bottom:2px solid transparent;padding:8px 4px;font:600 12px var(--ol-font);
   color:var(--ol-muted);cursor:pointer}
 .tabs button.on{color:var(--ol-ink);border-bottom-color:var(--ol-brass)}
 #list{flex:none}
-.tip{padding:8px 16px;font-size:12.5px;color:var(--ol-muted);border-bottom:1px solid var(--ol-line)}
-.it{padding:8px 16px;border-bottom:1px solid var(--ol-line);cursor:pointer;display:flex;gap:10px;align-items:center}
+.tip{padding:7px 16px;font-size:11.5px;color:var(--ol-muted);border-bottom:1px solid var(--ol-line)}
+.it{padding:6px 14px;font-size:12.5px;border-bottom:1px solid var(--ol-line);cursor:pointer;display:flex;gap:10px;align-items:center}
 .it:hover{background:var(--ol-chip)}
 .it .sw{flex:none;width:10px;height:10px;border-radius:2px}
 .it .m{flex:1;min-width:0}
 .it .t{font-weight:600;color:var(--ol-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.it .s{font-size:12.5px;color:var(--ol-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.it .s{font-size:11.5px;color:var(--ol-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .it .n{font-weight:600;color:var(--ol-ink);white-space:nowrap;font-variant-numeric:tabular-nums}
 .it .chev{color:var(--ol-faint);font-size:12px;width:10px}
 .it.open{background:var(--ol-paper)}
@@ -237,13 +237,13 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <div id="app">
   <aside id="side">
     <div class="head"><h1>NZ forests, 10 ha+</h1><button class="lnk" id="aboutbtn" type="button">How up to date?</button></div>
+    <div class="sum"><span id="sum"></span><span class="sp"></span>
+      <button class="lnk" id="reset" type="button">Clear</button><button class="lnk" id="csv" type="button">Download</button></div>
     <div class="qbox"><input type="search" id="q" placeholder="Search a place, title or company"></div>
     <div id="filters"></div>
   </aside>
   <div id="map"></div>
   <aside id="res">
-    <div class="sum"><span id="sum"></span><span class="sp"></span>
-      <button class="lnk" id="reset" type="button">Clear</button><button class="lnk" id="csv" type="button">Download</button></div>
     <div class="tabs" role="tablist" aria-label="Group by">
       <button class="on" data-tab="blocks" type="button">Forests</button>
       <button data-tab="district" type="button">District</button>
@@ -278,6 +278,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=57"></script>
+<script src="forest.js?v=58"></script>
 </body>
 </html>
