@@ -168,7 +168,7 @@ function syncMask() {                 // patches follow the list whenever a filt
 // ------------------------------------------------------------------ state (kept in the address bar)
 // Mike 2026-11-25: filters "like AquilaLens" - a list of filter tabs on the left, each opens to every option with a tick box
 // and a live count; ticks inside a tab widen ("this OR that"), tabs narrow each other. Results grouped on the right.
-const FK = ["kind", "due", "region", "district", "size", "fm", "mgr", "nf", "ht", "fsc"];       // the tick filters (lists)
+const FK = ["kind", "due", "region", "district", "size", "fm", "nf", "ht", "fsc"];   // "How the manager is known" dropped (Mike 2026-11-25); old mgr= links ignored       // the tick filters (lists)
 const S = {};
 const BLANK = {q: "", colour: "due", grp: "blocks", pin: null, km: 25, inf: "", dp: [], dm: "60", np: "", npa: "", ...Object.fromEntries(FK.map(k => [k, []]))};
 function readHash() {
@@ -217,7 +217,6 @@ const FACETS = [
   {id: "size", title: "Size", opts: () => SIZES.map((x, i) => [String(i), x[0]]), test: (b, k) => b.ha >= SIZES[k][1] && b.ha < SIZES[k][2]},
   {id: "fm", title: "Manager", search: "Find a firm…", note: "Firms named on a forest: from the firm's own published list, or found by research. About a third of plantation area is matched.",
     opts: () => FIRMS.map(f => [f, firmLabel(f)]), test: (b, k) => b.fk.has(k)},
-  {id: "mgr", title: "How the manager is known", opts: () => Object.entries(MGR), test: (b, k) => b.mgr === k},
   {id: "nf", title: "Carbon land", note: "Post-1989 forest land (MfE LUCAS 2020): land that can earn carbon units in the ETS.",
     opts: () => Object.entries(NF_FILTER), test: (b, k) => k === "post" ? enough(b.nf[0], b, 50) : enough(b.nf[1], b, 20)},
   {id: "ht", title: "Height today", note: "Estimated from LINZ lidar grown on to today, middle of the forest.",
@@ -461,7 +460,8 @@ let dpick = false;
 const placeKey = (g, n) => (g === "ports" ? "p:" : "m:") + n;
 const ticked = k => S.dp.includes(k);
 // S.inf: "p" ports, "m" mills, "pm" both (Mike 2026-11-25: ports and mills ticked apart, in the same box as drive time)
-const infShow = g => S.inf.includes(g === "ports" ? "p" : "m") || (dpick && !S.inf);
+const infShow = g => { const c = g === "ports" ? "p" : "m";      // while picking: only the kind already ticked (Mike: show just what the drive applies to)
+  return S.inf.includes(c) || (dpick && !S.inf && (!S.dp.length || S.dp.some(x => x[0] === c))); };
 const infOn = () => !!S.inf || dpick || S.dp.length > 0;
 function buildInf() {
   infKey = S.inf + dpick + S.dp.join("|");
@@ -534,13 +534,16 @@ const DtCtl = L.Control.extend({onAdd() {
     <button id="dtbtn" type="button" title="Click, then click ports and mills on the map to tick them: only forests within the drive time of a ticked place are counted">Drive time</button>
     <select id="f-dm" aria-label="Drive time">${[15, 30, 45, 60].map(k => `<option value="${k}">${k} min</option>`).join("")}</select>
     <span id="dtcount" class="dtn"></span><button id="dtclear" type="button" hidden title="Untick all">✕</button>
-    <div id="dthelp" class="dth" hidden>Click ports and mills to tick them, or tick all: <button type="button" data-all="ports">Ports</button><button type="button" data-all="saw">Sawmills</button><button type="button" data-all="mills">All mills</button><br>By car on OpenStreetMap roads, to the nearest edge of each forest. A loaded log truck is slower.</div>`;
+    <div id="dthelp" class="dth" hidden>Drive from: <button type="button" data-all="ports">Ports</button><button type="button" data-all="saw">Sawmills</button><button type="button" data-all="mills">All mills</button>
+      <button type="button" class="info" id="dtinfo" aria-expanded="false" aria-label="About drive time">i</button>
+      <div id="dtinfotxt" hidden>Tick all of one kind here, or click single ports and mills on the map. By car on OpenStreetMap roads, to the nearest edge of each forest. A loaded log truck is slower.</div></div>`;
   L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
   return d; }});
 new DtCtl({position: "topleft"}).addTo(map);
 $("dtbtn").addEventListener("click", async () => { dpick = !dpick; if (dpick) await loadInf(); update(); });
 $("f-dm").addEventListener("change", () => { S.dm = $("f-dm").value; update(); });
 $("dtclear").addEventListener("click", () => { S.dp = []; update(); });
+$("dtinfo").addEventListener("click", () => { const t = $("dtinfotxt"); t.hidden = !t.hidden; $("dtinfo").setAttribute("aria-expanded", String(!t.hidden)); });
 $("dthelp").addEventListener("click", async e => { const x = e.target.closest("button[data-all]"); if (!x) return; await loadInf();
   const add = x.dataset.all === "ports" ? INF.ports.ports.map(P => placeKey("ports", P.n))
     : INF.mills.filter(M => x.dataset.all === "mills" || M.kind === "Sawmill").map(M => placeKey("mills", M.n));
