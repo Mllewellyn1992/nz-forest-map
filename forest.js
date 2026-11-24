@@ -13,10 +13,14 @@ const VIZ = window.OL_VIZ, dark = VIZ.dark;
 // ------------------------------------------------------------------ colours and names
 const C = dark ? {kind: ["#4cae6c", "#d9ac3a"], hg: ["#e8664c", "#f0a050", "#e8d77a", "#8cc46a", "#3f9a5a", "#a99bd8"],
   soon: ["#4a4237", "#8a6a3a", "#c97a3a", "#f08a5c"],
-  mgr: {named: "#5d9cf0", found: "#4cc3b0", cfl: "#a487f0", none: "#6d7177"}, nf: {recent: "#f0c04a", most: "#4cae6c", part: "#2f6b45", old: "#6d7177"}, sel: "#ffffff"}
+  mgr: {named: "#5d9cf0", found: "#4cc3b0", cfl: "#a487f0", none: "#6d7177"}, nf: {recent: "#f0c04a", most: "#4cae6c", part: "#2f6b45", old: "#6d7177"}, sel: "#ffffff",
+  ht: ["#5a5340", "#7d7a3e", "#8fae4a", "#4cbf6c", "#a6f0b4"]}
   : {kind: ["#2d7a46", "#c8901e"], hg: ["#b23a26", "#e0832a", "#dcc24a", "#7fae4a", "#2d6a40", "#7f6fb8"],
   soon: ["#efe3c8", "#e6b46e", "#d0702e", "#9c2f1a"],
-  mgr: {named: "#2f6fde", found: "#178f7d", cfl: "#7a4fd6", none: "#a9aeb5"}, nf: {recent: "#d99a0b", most: "#3f9a5a", part: "#a6cf8f", old: "#c4c8cd"}, sel: "#111418"};
+  mgr: {named: "#2f6fde", found: "#178f7d", cfl: "#7a4fd6", none: "#a9aeb5"}, nf: {recent: "#d99a0b", most: "#3f9a5a", part: "#a6cf8f", old: "#c4c8cd"}, sel: "#111418",
+  ht: ["#efe6c4", "#cfd99a", "#8fbf68", "#3f8f4c", "#164f2c"]};
+// tree height (LINZ lidar, median of the block's 80 m cells, at the flight year) - Chris 2026-11-24: "regional heights"
+const HT_STEPS = [0, 5, 10, 20, 30], HT_TEXT = ["Under 5 m", "5-10 m", "10-20 m", "20-30 m", "30 m+"];
 const KIND = ["Plantation", "Mānuka / kānuka"];
 // default harvest colour: how much of each block is due by 2033 (a share, so one giant block does not hide its near-term part)
 const enough = (v, b, cap) => v >= Math.min(cap, b.ha / 4);   // "has some X": cap ha, or a quarter of a small block
@@ -28,10 +32,10 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 34;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 35;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
-const [B, MG, ST] = await Promise.all([get("blocks.json"), get("managers.json"),
+const [B, MG, E, ST] = await Promise.all([get("blocks.json"), get("managers.json"), get("extra.json").catch(() => ({h: {}, v: {}, vb: {}})),
   fetch("stands/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}))]);
 const R = B.regions, D = B.districts, blocks = B.blocks, HG = B.harvest;
 const SHORT = Object.fromEntries(MG.firms.map(F => [F.name, F.short || F.name]));
@@ -44,6 +48,9 @@ blocks.forEach(b => {
   b.step = b.k === 0 && b.ha ? SOON_STEPS.findLastIndex(t => b.soon / b.ha >= t) : -1;
   b.text = [R[b.r], D[b.d], b.tt, KIND[b.k], ...b.firms, ...b.mg.map(m => m[1]), b.rm[1] || ""].join(" ").toLowerCase();
   b.ll = L.latLng(b.c[0], b.c[1]);
+  b.ht = E.h[b.id] && E.h[b.id][0] != null ? E.h[b.id] : null;      // [median m, tallest tenth m, flight year, % flown, % under 2 m]
+  b.hts = b.ht ? HT_STEPS.findLastIndex(t => b.ht[0] >= t) : -1;
+  b.vk = E.vb[b.id] || "";                                           // MPI yield table region
 });
 $("a-pl").textContent = fmt(blocks.filter(b => b.k === 0).reduce((s, b) => s + b.ha, 0));
 const unring = a => { const out = []; let x = 0, y = 0; for (let i = 0; i < a.length; i += 2) { x += a[i]; y += a[i + 1]; out.push([y / 1e4, x / 1e4]); } return out; };
@@ -123,11 +130,11 @@ function syncStands() {
 
 // ------------------------------------------------------------------ state (kept in the address bar)
 const S = {};
-const BLANK = {q: "", kind: "", due: "", region: -1, district: -1, size: "", mgr: "", nf: "", colour: "due", tab: "blocks", pin: null, km: 25, fm: []};
+const BLANK = {q: "", kind: "", due: "", region: -1, district: -1, size: "", mgr: "", nf: "", colour: "due", tab: "blocks", pin: null, km: 25, fm: [], inf: ""};
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   Object.assign(S, BLANK);
-  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab"]) if (p.has(k)) S[k] = p.get(k);
+  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "inf"]) if (p.has(k)) S[k] = p.get(k);
   for (const k of ["region", "district"]) if (p.has(k)) S[k] = +p.get(k);
   if (p.has("km")) S.km = /^d\d+$/.test(p.get("km")) ? p.get("km") : +p.get("km") || 25;   // "d30" = a 30 min drive
   if (!["blocks", "managers"].includes(S.tab)) S.tab = "blocks";
@@ -136,7 +143,7 @@ function readHash() {
 }
 function writeHash() {
   const p = new URLSearchParams();
-  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "region", "district"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
+  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "region", "district", "inf"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
   if (S.fm.length) p.set("fm", S.fm.join("|"));
   if (S.pin) { p.set("pin", S.pin.map(v => v.toFixed(4)).join(",")); p.set("km", S.km); }
   history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
@@ -151,7 +158,7 @@ $("f-region").innerHTML = opts("All NZ", R.map((t, i) => [i, t]));
 $("f-size").innerHTML = opts("Any size", SIZES.map((s, i) => [i, s[0]]));
 $("f-mgr").innerHTML = opts("Any", Object.entries(MGR));
 $("f-nf").innerHTML = opts("Any", Object.entries(NF_FILTER));
-$("f-colour").innerHTML = [["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("");
+$("f-colour").innerHTML = [["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["ht", "Height"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("");
 function fillDistricts() {
   $("disbox").hidden = S.region < 0;
   const used = new Set(blocks.filter(b => b.r === S.region).map(b => b.d));
@@ -203,7 +210,7 @@ function passes(b, anyFirm) {
 const dueOn = () => S.colour === "due" && S.due !== "";          // one harvest period picked: colour that period, darker = more of the block
 const share = b => b.ha ? Math.min(1, b.hg[+S.due] / b.ha) : 0;
 const colourOf = b => S.colour === "due" ? (dueOn() ? C.hg[+S.due] : b.step >= 0 ? C.soon[b.step] : VIZ.none)
-  : S.colour === "mgr" ? C.mgr[b.mgr] : S.colour === "nf" ? (b.nfc ? C.nf[b.nfc] : VIZ.none) : C.kind[b.k];
+  : S.colour === "mgr" ? C.mgr[b.mgr] : S.colour === "nf" ? (b.nfc ? C.nf[b.nfc] : VIZ.none) : S.colour === "ht" ? (b.hts >= 0 ? C.ht[b.hts] : VIZ.none) : C.kind[b.k];
 
 // ------------------------------------------------------------------ drawing
 // hover label: what the colour means for this forest (Mike 2026-11-24: Manager view shows the manager, not the district)
@@ -211,6 +218,7 @@ function tipOf(b) {
   const what = S.colour === "mgr" ? (b.firms.length ? b.firms.join(", ") : MGR[b.mgr])
     : S.colour === "nf" ? (b.nfc ? NF[b.nfc] : KIND[b.k])
     : S.colour === "kind" ? KIND[b.k]
+    : S.colour === "ht" ? (b.ht ? `Trees ${b.ht[0]} m tall (lidar ${b.ht[2]})` : "No lidar here yet")
     : b.k !== 0 ? KIND[b.k] : dueOn() ? `${fmt(b.hg[+S.due])} ha ${HG[+S.due].replace(/^Due /, "due ").replace(/^Felled/, "felled").replace(/^(\d)/, "due $1")}`
     : `${fmt(b.soon)} ha due by 2033`;
   return `<b>${esc(what)}</b><br>${fmt(b.ha)} ha · ${esc(D[b.d] || "")}`;
@@ -247,12 +255,21 @@ function blockCard(b) {
     : b.rm.length ? "" : `<div class="s" style="margin-top:6px">Not matched to a manager's list${b.cfl ? " (has a Crown forest licence)" : ""}</div>`;
   const resRow = b.rm.length ? `<div class="s" style="margin-top:6px">${/\(owner/.test(b.rm[0]) ? (b.rm[2] ? "Owner (found by research)" : "Likely owner (found by research, not confirmed)") : b.rm[2] ? "Manager (found by research)" : "Likely manager (found by research, not confirmed)"}</div>
     <div><b>${esc(b.rm[0])}</b>${b.rm[1] ? ` <span class="s">${esc(b.rm[1])}</span>` : ""}${b.rm[3] ? ` <a class="s" href="${esc(b.rm[3])}" target="_blank" rel="noopener">source</a>` : ""}</div>` : "";
+  const sig = (a, c) => c >= 1e6 ? `${(a / 1e6).toFixed(1)}-${(c / 1e6).toFixed(1)} million` : c >= 1e4 ? `${fmt(Math.round(a / 1e3) * 1e3)}-${fmt(Math.round(c / 1e3) * 1e3)}` : `${fmt(Math.round(a / 100) * 100)}-${fmt(Math.round(c / 100) * 100)}`;
+  const htRow = b.ht ? `<div class="s" style="margin-top:6px">Tree height (LINZ lidar, flown ${b.ht[2]})</div>
+    <div><b>${b.ht[0]} m</b> in the middle, tallest tenth <b>${b.ht[1]} m</b> <span class="s">· ${b.ht[3]}% of block flown${b.ht[4] >= 5 ? ` · ${b.ht[4]}% bare or under 2 m` : ""}</span></div>` : "";
+  const Y = b.k === 0 && E.v[b.vk] ? E.v[b.vk].filter(Boolean) : [];
+  const lo = Y.length ? Math.min(...Y.map(y => y[0])) : 0, hi = Y.length ? Math.max(...Y.map(y => y[0])) : 0;
+  const pulp = Y.map(y => Math.round(y[3] / y[0] * 100)).sort((a, c) => a - c);
+  const volRow = Y.length ? `<div class="s" style="margin-top:6px">Typical wood at harvest, age 28 (MPI yield tables, ${esc(b.vk)})</div>
+    <div><b>${lo === hi ? lo : lo + "-" + hi} m³/ha</b> <span class="s">· pulp logs ${pulp[0] === pulp[pulp.length - 1] ? pulp[0] : pulp[0] + "-" + pulp[pulp.length - 1]}% · ${Y.length > 1 ? "pruned vs unpruned" : "one regime"}</span></div>
+    ${b.soon ? `<div class="s">Due by 2033: ${fmt(b.soon)} ha ≈ ${sig(b.soon * lo, b.soon * hi)} m³. Region average, not measured here.</div>` : `<div class="s">Region average, not measured here.</div>`}` : "";
   const extra = [b.fr ? `${b.fr} with a forestry right` : "", b.cfl ? `${b.cfl} Crown forest licence` : ""].filter(Boolean).join(", ");
   const rows = [["Land titles", fmt(b.t) + (extra ? ` <span class="s">(${extra})</span>` : "")],
     b.mao ? ["Māori land", fmt(b.mao) + " ha"] : null, b.con ? ["Conservation land", fmt(b.con) + " ha"] : null].filter(Boolean);
   return `<div class="card"><h3>${esc(KIND[b.k])} · ${fmt(b.ha)} ha</h3>
     <div class="s">${esc(D[b.d] || "")}${b.r >= 0 ? ", " + esc(R[b.r]) : ""}</div>
-    ${ageRows}${b.k === 0 ? mgrRow + resRow : ""}${b.k === 0 && b.nf[0] ? `<div class="s" style="margin-top:6px">Post-1989 forest land: <b>${fmt(b.nf[0])} ha</b>${b.nf[1] ? ` (${fmt(b.nf[1])} ha planted 2018-23)` : ""}</div>` : ""}
+    ${ageRows}${htRow}${volRow}${b.k === 0 ? mgrRow + resRow : ""}${b.k === 0 && b.nf[0] ? `<div class="s" style="margin-top:6px">Post-1989 forest land: <b>${fmt(b.nf[0])} ha</b>${b.nf[1] ? ` (${fmt(b.nf[1])} ha planted 2018-23)` : ""}</div>` : ""}
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</table>
     <div class="links"><a href="https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3" target="_blank" rel="noopener">Satellite view</a>
       ${b.r >= 0 ? `<a href="#" data-managers="${b.r}">Managers in ${esc(R[b.r])}</a>` : ""}</div></div>`;
@@ -326,19 +343,59 @@ $("pinkm").addEventListener("change", () => { const v = $("pinkm").value; S.km =
 $("pinclear").addEventListener("click", () => { setPin(null); update(); });
 map.on("click", e => { if (!pinning) return; pinning = false; $("pinbtn").classList.remove("on"); map.getContainer().style.cursor = ""; setPin(e.latlng); update(); });
 
+
+// ------------------------------------------------------------------ ports and mills (Mike 2026-11-24: "add in Ports, sawmills ... what they produce/export")
+const INF = {ports: null, mills: null, layer: L.layerGroup()};
+const m3 = v => v >= 1e6 ? (v / 1e6).toFixed(2).replace(/0$/, "") + " million" : fmt(Math.round(v / 1e3) * 1e3);
+const PORT_ROWS = [["logs", "Logs", "m³"], ["sawn", "Sawn timber", "m³"], ["panels", "Panels (ply, MDF, LVL)", "m³"], ["pulp", "Pulp", "tonnes"], ["chips", "Wood chips", "bone-dry units"]];
+function portCard(P, period) {
+  return `<div class="card"><h3>${esc(P.n)}</h3><div class="s">Forestry exports, ${esc(period.replace(" to ", " – "))} (MPI trade statistics)</div>
+    <table>${PORT_ROWS.filter(r => P[r[0]]).map(([k, t, u]) => `<tr><td>${t}</td><td>${m3(P[k])} ${u}</td></tr>`).join("")}</table>
+    ${P.to && P.to.length ? `<div class="s" style="margin-top:6px">Logs went to: ${P.to.map(([c, v]) => `${esc(c)} ${v}%`).join(", ")}</div>` : ""}</div>`;
+}
+function millCard(M) {
+  return `<div class="card"><h3>${esc(M.n)}</h3><div class="s">${esc(M.own || "")}${M.own && M.town ? " · " : ""}${esc(M.town || "")}</div>
+    <table>${[["Makes", M.prod], ["Size", M.size], ["Sells to", M.exp], ["Status", M.st + (M.sd ? ` (${M.sd})` : "")]].filter(r => r[1] && !/^(unknown|n\/a|none)$/i.test(r[1])).map(r => `<tr><td>${r[0]}</td><td>${esc(r[1])}</td></tr>`).join("")}</table>
+    ${/^town/.test(M.at || "") ? `<div class="s">Pin at the town centre, not the mill gate</div>` : ""}
+    ${M.src ? `<div class="links"><a href="${esc(M.src)}" target="_blank" rel="noopener">Status source</a></div>` : ""}</div>`;
+}
+const PORT_C = "#1f4e79", MILL_C = dark ? "#f2efe8" : "#1b1d21", MILL_RING = dark ? "#1b1d21" : "#ffffff";   // mills: black dots, apart from every forest colour
+function buildInf() {
+  INF.layer.clearLayers();
+  const pr = L.canvas({padding: .5});
+  (INF.mills || []).forEach(M => L.circleMarker(M.ll, {renderer: pr, radius: 5.5, color: MILL_RING, weight: 1.5, fillColor: MILL_C, fillOpacity: 1})
+    .bindTooltip(`<b>${esc(M.n)}</b><br>${esc(M.kind)}`, {direction: "top"}).bindPopup(() => millCard(M), {maxWidth: 320}).addTo(INF.layer));
+  const top = Math.max(...INF.ports.ports.map(P => P.logs || 0));
+  INF.ports.ports.forEach(P => L.circleMarker(P.ll, {renderer: pr, radius: 6 + 8 * Math.sqrt((P.logs || 0) / top), color: "#fff", weight: 1.5, fillColor: PORT_C, fillOpacity: .9})
+    .bindTooltip(`<b>${esc(P.n)}</b><br>${P.logs ? m3(P.logs) + " m³ logs a year" : "Export port"}`, {direction: "top"})
+    .bindPopup(() => portCard(P, INF.ports.period), {maxWidth: 320}).addTo(INF.layer));
+}
+async function syncInf() {
+  document.querySelectorAll("#f-inf button").forEach(x => x.classList.toggle("on", x.dataset.v === S.inf));
+  if (!S.inf) { map.removeLayer(INF.layer); return; }
+  if (!INF.ports) {
+    [INF.ports, INF.mills] = await Promise.all([get("ports.json"), get("mills.json").then(d => d.mills).catch(() => [])]);
+    buildInf();
+  }
+  if (S.inf) { INF.layer.addTo(map); drawLegend(); }
+}
+$("f-inf").addEventListener("click", e => { const x = e.target.closest("button"); if (!x) return; S.inf = x.dataset.v; syncInf(); drawLegend(); writeHash(); });
+
 // ------------------------------------------------------------------ legend
 const legend = L.DomUtil.create("div", "legend");
 map.getContainer().appendChild(legend);
 L.DomEvent.disableClickPropagation(legend);
 function drawLegend() {
   const k = (c, t, round) => `<div class="k"><i style="background:${c}${round ? ";border-radius:50%" : ""}"></i>${esc(t)}</div>`;
-  legend.innerHTML = standsOn() ? `<div class="lh">Harvest due, each patch</div>` + HG.map((n, i) => S.due === "" || S.due === String(i) ? k(C.hg[i], n) : "").join("") + k(VIZ.none, "Mānuka / kānuka")
+  legend.innerHTML = (standsOn() ? `<div class="lh">Harvest due, each patch</div>` + HG.map((n, i) => S.due === "" || S.due === String(i) ? k(C.hg[i], n) : "").join("") + k(VIZ.none, "Mānuka / kānuka")
     : (dueOn() ? `<div class="lh">${esc(HG[+S.due])}</div>` + [[1, "All of the block"], [.5, "Half"], [.1, "A tenth"]].map(([f, t]) =>
       `<div class="k"><i style="background:${C.hg[+S.due]};opacity:${.15 + .75 * Math.sqrt(f)}"></i>${t}</div>`).join("")
     : S.colour === "due" ? `<div class="lh">Share of block due by 2033</div>` + SOON_TEXT.map((n, i) => k(C.soon[i], n)).reverse().join("") + k(VIZ.none, "Mānuka / kānuka")
     : S.colour === "mgr" ? Object.keys(MGR).map(l => k(C.mgr[l], MGR[l])).join("")
     : S.colour === "nf" ? Object.keys(NF).map(l => k(C.nf[l], NF[l])).join("") + k(VIZ.none, "Mānuka / kānuka")
-    : KIND.map((n, i) => k(C.kind[i], n)).join(""));
+    : S.colour === "ht" ? `<div class="lh">Tree height, middle of block</div>` + HT_TEXT.map((n, i) => k(C.ht[i], n)).reverse().join("") + k(VIZ.none, "No lidar yet")
+    : KIND.map((n, i) => k(C.kind[i], n)).join("")))
+    + (S.inf ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + k(PORT_C, "Export port (size = logs)", 1) + (INF.mills && INF.mills.length ? k(MILL_C, "Mill", 1) : "") : "");
 }
 
 // ------------------------------------------------------------------ side panel
@@ -440,10 +497,10 @@ $("pipe").addEventListener("click", e => { const r = e.target.closest("[data-due
 $("csv").addEventListener("click", () => {
   const head = ["block_id", "type", "region", "district", "forest_ha", ...HG.map(a => "ha_" + a.toLowerCase().replace(/[^a-z0-9]+/g, "_")), "manager_lists_naming_a_forest_here", "manager_found_by_research", "research_confidence", "research_source", "ha_post_1989_forest_land_mfe", "ha_planted_on_farmland_2018_23",
     "titles", "largest_titles", "forestry_right_titles", "crown_forest_licence_titles", "maori_land_ha", "conservation_ha",
-    "lat", "lon", "satellite"];
+    "tree_height_median_m_lidar", "tree_height_tallest_tenth_m", "lidar_year", "lidar_share_flown_pct", "mpi_yield_region", "lat", "lon", "satellite"];
   const q = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v;
   const rows = shown.slice().sort((a, b) => b.ha - a.ha).map(b => [b.id, KIND[b.k], R[b.r] || "", D[b.d] || "", b.ha, ...b.hg, b.mg.map(m => SHORT[m[0]] + ": " + m[1]).join("; "), b.rm.length ? b.rm[0] + (b.rm[1] ? ": " + b.rm[1] : "") : "", b.rm.length ? (b.rm[2] ? "sure" : "likely") : "", b.rm[3] || "", b.nf[0], b.nf[1],
-    b.t, b.tt, b.fr, b.cfl, b.mao, b.con, b.c[0], b.c[1], `https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3`].map(q).join(","));
+    b.t, b.tt, b.fr, b.cfl, b.mao, b.con, ...(b.ht ? b.ht.slice(0, 4) : ["", "", "", ""]), b.vk, b.c[0], b.c[1], `https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3`].map(q).join(","));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + [head.join(","), ...rows].join("\r\n")], {type: "text/csv"}));
   a.download = "nz_forests.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -457,7 +514,7 @@ function syncControls() {
   $("f-colour").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === S.colour));
 }
 function update(zoomTo) {
-  syncControls(); syncStands(); draw(); summary(); drawLegend(); drawList(); writeHash();
+  syncControls(); syncStands(); syncInf(); draw(); summary(); drawLegend(); drawList(); writeHash();
   if (zoomTo && shown.length && (S.region >= 0 || S.district >= 0)) {
     map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
     const go = () => map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});
