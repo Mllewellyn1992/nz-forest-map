@@ -32,7 +32,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 36;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 37;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const tileIndex = d => fetch(d + "/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -97,7 +97,10 @@ const tileSet = T => new Set(Object.entries(T || {}).flatMap(([z, v]) => v.map(t
 const STAND_SET = tileSet(ST), HT_SET = tileSet(HT);
 const HT_RGB = ["#efe6c4", "#cfd99a", "#8fbf68", "#3f8f4c", "#164f2c"].map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));   // height_tiles.py palette
 const standImg = {};
-let standMask = "", standAreas = [];                 // drive-time tool: patches outside the picked areas are cut away
+let standMask = "", standBlocks = null;              // filtered: patches of forests not on the list are cut away (drive tool too)
+const blockRings = b => b.rings || (b.rings = b.g.map(poly => poly.map(unring)));
+const blockBB = b => b.bb || (b.bb = (() => { let a = 90, c = -90, e = 180, f = -180;
+  blockRings(b).forEach(p => p[0].forEach(([y, x]) => { a = Math.min(a, y); c = Math.max(c, y); e = Math.min(e, x); f = Math.max(f, x); })); return [a, e, c, f]; })());
 map.createPane("stands").style.zIndex = 350;
 const Stands = L.GridLayer.extend({
   _clampZoom(z) { return L.GridLayer.prototype._clampZoom.call(this, Math.round(z)); },   // Leaflet 1.9 redraw() skips the rounding: at zoom 5.75 it asked for tiles "5.75/x/y" and drew nothing
@@ -119,14 +122,14 @@ const Stands = L.GridLayer.extend({
         a[p] = to[k][0]; a[p + 1] = to[k][1]; a[p + 2] = to[k][2]; a[p + 3] = 215;
       }
       g.putImageData(d, 0, 0);
-      if (standAreas.length) {                       // keep only what lies inside a drive area
+      if (standBlocks) {                             // keep only the forests on the list
         const o = L.point(co.x * 256, co.y * 256), nw = map.unproject(o, co.z), se = map.unproject(o.add([256, 256]), co.z);
-        const hit = standAreas.filter(A => A.bb[0] <= nw.lat && A.bb[2] >= se.lat && A.bb[1] <= se.lng && A.bb[3] >= nw.lng);
+        const hit = standBlocks.filter(b => { const A = blockBB(b); return A[0] <= nw.lat && A[2] >= se.lat && A[1] <= se.lng && A[3] >= nw.lng; });
         if (!hit.length) g.clearRect(0, 0, 256, 256);   // an empty path would cut nothing
         g.globalCompositeOperation = "destination-in"; g.beginPath();
-        hit.forEach(A => A.rings.forEach(r => r.forEach(([la, ln], i) => {
-          const q = map.project([la, ln], co.z).subtract(o); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); })));
-        g.fillStyle = "#000"; g.fill(); g.globalCompositeOperation = "source-over";
+        hit.forEach(b => blockRings(b).forEach(poly => poly.forEach(r => r.forEach(([la, ln], i) => {
+          const q = map.project([la, ln], co.z).subtract(o); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); }))));
+        g.fillStyle = "#000"; g.fill("evenodd"); g.globalCompositeOperation = "source-over";
       }
       done(null, cv);
     }).catch(() => done(null, cv));
@@ -156,6 +159,10 @@ function syncStands() {
   heightsWere = hon ? standMask : null;
 }
 let heightsWere = null;
+function syncMask() {                 // patches follow the list whenever a filter is on
+  standBlocks = shown.length < blocks.length ? shown : null;
+  standMask = standBlocks ? shown.length + ":" + shown.reduce((h, b) => (h * 31 + b.id) % 1e9, 7) : "";
+}
 
 // ------------------------------------------------------------------ state (kept in the address bar)
 const S = {};
@@ -233,7 +240,7 @@ function passes(b, anyFirm) {
   if (S.nf === "post" && !enough(b.nf[0], b, 50)) return false;
   if (S.nf === "recent" && !enough(b.nf[1], b, 20)) return false;
   if (S.pin && !near(b.ll)) return false;
-  if (S.dt && !inDrive(b.ll)) return false;
+  if (S.dt && !inDrive(b)) return false;
   const w = words(); if (w.length && !w.every(x => b.text.includes(x))) return false;
   return true;
 }
@@ -276,10 +283,10 @@ function draw() {
 // ------------------------------------------------------------------ the block card
 function driveRow(b) {
   if (!DRIVE.d || !INF.mills) return "";
-  const kindOf = Object.fromEntries(INF.mills.map(M => [M.n, M.kind]));
-  const line = (t, r) => r[0] ? `<div>${t}: <b>under ${r[0]} min</b> <span class="s">${esc(r[1].slice(0, 2).join(", "))}${r[1].length > 2 ? ` +${r[1].length - 2}` : ""}</span></div>` : `<div>${t}: <b>over 60 min</b></div>`;
-  return `<div class="s" style="margin-top:6px">Drive by car from the middle of the forest</div>
-    ${line("Port", driveTo(b, "ports", () => true))}${line("Sawmill", driveTo(b, "mills", n => kindOf[n] === "Sawmill"))}`;
+  const r = DRIVE.d.b[b.id] || [[0, []], [0, []], [0, []]];
+  const line = (t, [m, ix], names) => { const ns = ix.map(i => names[i]); return m ? `<div>${t}: <b>under ${m} min</b> <span class="s">${esc(ns.slice(0, 2).join(", "))}${ns.length > 2 ? ` +${ns.length - 2}` : ""}</span></div>` : `<div>${t}: <b>over 60 min</b></div>`; };
+  return `<div class="s" style="margin-top:6px">Drive by car to the nearest edge of the forest</div>
+    ${line("Port", r[0], DRIVE.d.pn)}${line("Sawmill", r[1], DRIVE.d.mn)}`;
 }
 function blockCard(b) {
   const tot = b.hg.reduce((s, v) => s + v, 0);
@@ -435,7 +442,9 @@ const loadDrive = () => driveLoad = driveLoad || get("drive.json").then(d => {
   for (const g of ["ports", "mills"]) for (const n in d[g]) for (const m in d[g][n]) d[g][n][m] = {rings: d[g][n][m], bb: bb(d[g][n][m])};
   DRIVE.d = d; return d; }).catch(() => null);
 const inArea = (A, ll) => ll.lat >= A.bb[0] && ll.lat <= A.bb[2] && ll.lng >= A.bb[1] && ll.lng <= A.bb[3] && inPoly(A.rings, ll.lat, ll.lng);
-const inDrive = ll => !DRIVE.set.length ? !DRIVE.d : DRIVE.set.some(A => inArea(A.a, ll));
+const DT_COL = {ports: 0, saw: 1, mills: 2};
+// a forest counts when the drive area reaches any part of it (nearest edge, worked out in drive_areas.py)
+const inDrive = b => { if (!DRIVE.d) return true; const r = DRIVE.d.b[b.id]; return !!r && r[DT_COL[S.dt]][0] > 0 && r[DT_COL[S.dt]][0] <= +S.dm; };
 function driveNames() {             // the places the picked kind covers
   if (S.dt === "ports") return INF.ports ? INF.ports.ports.map(P => ["ports", P.n]) : [];
   return (INF.mills || []).filter(M => S.dt === "mills" || M.kind === "Sawmill").map(M => ["mills", M.n]);
@@ -445,17 +454,17 @@ async function syncDrive() {
   $("dmbox").hidden = !S.dt; $("f-dm").value = S.dm;
   const key = S.dt ? S.dt + S.dm : "";
   if (key === DRIVE.key) return;
-  DRIVE.key = key; DRIVE.layer.clearLayers(); DRIVE.set = []; standAreas = []; standMask = key;
-  if (!S.dt) { map.removeLayer(DRIVE.layer); syncStands(); return; }
+  DRIVE.key = key; DRIVE.layer.clearLayers(); DRIVE.set = [];
+  if (!S.dt) { map.removeLayer(DRIVE.layer); return; }
   await Promise.all([loadDrive(), loadInf()]);
   if (!DRIVE.d || DRIVE.key !== key) return;
   DRIVE.set = driveNames().map(([g, n]) => ({n, a: (DRIVE.d[g][n] || {})[S.dm]})).filter(x => x.a);
-  standAreas = DRIVE.set.map(x => x.a); standMask = key + ":" + standAreas.length;
   DRIVE.set.forEach(x => L.polygon(x.a.rings, {renderer: driveRnd, color: DRIVE_C, weight: 1, opacity: .5, fillColor: DRIVE_C, fillOpacity: dark ? .16 : .1, interactive: false}).addTo(DRIVE.layer));
   DRIVE.layer.addTo(map);
   update();                         // the forest filter needs the areas
 }
 $("f-dt").addEventListener("click", e => { const x = e.target.closest("button"); if (!x) return; S.dt = x.dataset.v; update(); });
+$("dtinfo").addEventListener("click", () => { const t = $("dtinfotxt"); t.hidden = !t.hidden; $("dtinfo").setAttribute("aria-expanded", String(!t.hidden)); });
 $("f-dm").addEventListener("change", () => { S.dm = $("f-dm").value; update(); });
 // nearest port / mill by drive time, for the forest card
 function driveTo(b, g, filt) {
@@ -603,7 +612,7 @@ function syncControls() {
   $("f-colour").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === S.colour));
 }
 function update(zoomTo) {
-  syncControls(); syncStands(); syncInf(); syncDrive(); draw(); summary(); drawLegend(); drawList(); writeHash();
+  syncControls(); syncInf(); syncDrive(); draw(); syncMask(); syncStands(); summary(); drawLegend(); drawList(); writeHash();
   if (zoomTo && shown.length && (S.region >= 0 || S.district >= 0)) {
     map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
     const go = () => map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});
