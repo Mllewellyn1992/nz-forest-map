@@ -420,15 +420,21 @@ function drawRing(fit) {
 }
 const pinLabel = () => !isDrive() ? `${S.km} km of pin` : drive && drive.rings ? `${driveMin()} min drive of pin`
   : drive && drive.err ? `drive time failed: ${esc(drive.err)}` : "working out the drive time…";
-const PinCtl = L.Control.extend({onAdd() {
-  const d = L.DomUtil.create("div", "pinbox");
-  d.innerHTML = `<button id="pinbtn" type="button" title="Click, then click the map: only forests within the distance or drive time are counted">Drop a pin</button>
+// one "Map tools" card on the left (Mike 2026-11-25: colour, layers, pin and drive time on the same side, tidier); each part fills its section
+const ToolsCtl = L.Control.extend({onAdd() {
+  const d = L.DomUtil.create("div", "tools");
+  d.innerHTML = `<button type="button" class="ttog" aria-expanded="true"><span>Map tools</span><b>▾</b></button>
+    <div class="tbody"><section id="sec-view"></section><section id="sec-dt"></section><section id="sec-pin"></section><section id="sec-np"></section></div>`;
+  L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
+  const tg = d.querySelector(".ttog"), set = shut => { d.classList.toggle("shut", shut); tg.setAttribute("aria-expanded", String(!shut)); try { localStorage.setItem("fm-tools", shut ? "1" : "0"); } catch (e) { /* off */ } };
+  let shut = matchMedia("(max-width:760px)").matches; try { const v = localStorage.getItem("fm-tools"); if (v) shut = v === "1"; } catch (e) { /* off */ }
+  set(shut); tg.addEventListener("click", () => set(!d.classList.contains("shut")));
+  return d; }});
+new ToolsCtl({position: "topleft"}).addTo(map);
+$("sec-pin").innerHTML = `<h4>Drop a pin</h4><div class="trow"><button id="pinbtn" class="tbtn" type="button" title="Click, then click the map: only forests within the distance or drive time are counted">Drop a pin</button>
     <select id="pinkm" aria-label="Distance or drive time"><optgroup label="Distance">${[10, 25, 50, 100, 150].map(k => `<option value="${k}">${k} km</option>`).join("")}</optgroup>
       <optgroup label="Drive time">${[15, 30, 45, 60].map(k => `<option value="d${k}">${k} min drive</option>`).join("")}</optgroup></select>
-    <button id="pinclear" type="button" hidden title="Remove the pin">✕</button>`;
-  L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
-  return d; }});
-new PinCtl({position: "topleft"}).addTo(map);
+    <button id="pinclear" class="tx" type="button" hidden title="Remove the pin">✕</button></div>`;
 $("pinkm").value = String(S.km);
 $("pinbtn").addEventListener("click", () => { pinning = !pinning; $("pinbtn").classList.toggle("on", pinning); map.getContainer().style.cursor = pinning ? "crosshair" : ""; });
 $("pinkm").addEventListener("change", () => { const v = $("pinkm").value; S.km = v[0] === "d" ? v : +v; if (S.pin) { drawRing(); update(); } });
@@ -521,7 +527,7 @@ function syncDtCtl() {
     `<optgroup label="${t}">${ps.filter(p => p.g === c).sort((a, b) => a.n.localeCompare(b.n)).map(p => `<option value="${esc(p.k)}">${esc(p.n)}</option>`).join("")}</optgroup>`).join("");
   sel.value = ps.some(p => p.k === S.dfrom) ? S.dfrom : ""; sel.disabled = !ps.length;
   $("f-dm").value = S.dm; $("dtbtn").classList.toggle("on", !!S.dt); $("dtbtn").disabled = !ps.length && !S.dt;
-  $("dtbtn").textContent = S.dt ? "Drive time on ✕" : "Drive time";
+  $("dtbtn").textContent = S.dt ? "Drive time on · turn off" : "Drive time";
 }
 function syncDrive() {
   syncDtCtl();
@@ -538,15 +544,11 @@ function syncDrive() {
     update();                       // the forest filter needs the areas
   });
 }
-const DtCtl = L.Control.extend({onAdd() {
-  const d = L.DomUtil.create("div", "pinbox dtbox");
-  d.innerHTML = `<div class="dtrow">${PLACE_G.map(([c, t]) => `<button type="button" class="chk" id="t-${c}" role="checkbox" aria-checked="false"><i></i><span class="pdot" style="background:${PLACE_C[c]}">${PLACE_SVG[c]}</span>${c === "o" ? "Pulp / panel" : t}</button>`).join("")}</div>
-    <div class="dtrow2"><select id="f-from" aria-label="Drive from"></select><select id="f-dm" aria-label="Drive time">${[15, 30, 45, 60].map(k => `<option value="${k}">${k} min</option>`).join("")}</select>
-      <button id="dtbtn" type="button">Drive time</button><button type="button" class="info" id="dtinfo" aria-expanded="false" aria-label="About drive time">i</button></div>
-    <div id="dtinfotxt" class="dth" hidden>Shows the forests within the drive time of the ticked ports and mills, or of the one picked. By car on OpenStreetMap roads, to the nearest edge of each forest. A loaded log truck is slower.</div>`;
-  L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
-  return d; }});
-new DtCtl({position: "topleft"}).addTo(map);
+$("sec-dt").innerHTML = `<h4>Ports and mills <button type="button" class="info" id="dtinfo" aria-expanded="false" aria-label="About drive time">i</button></h4>
+    <div id="dtinfotxt" class="dth" hidden>Tick to show them. Drive time keeps the forests within that drive of the ticked places, or of the one picked. By car on OpenStreetMap roads, to the nearest edge of each forest; a loaded log truck is slower.</div>
+    <div class="trow">${PLACE_G.map(([c, t]) => `<button type="button" class="tchip" id="t-${c}" role="checkbox" aria-checked="false" style="--c:${PLACE_C[c]}"><span class="pdot" style="background:${PLACE_C[c]}">${PLACE_SVG[c]}</span>${c === "o" ? "Pulp / panel" : t}</button>`).join("")}</div>
+    <div class="trow"><select id="f-from" aria-label="Drive from"></select><select id="f-dm" aria-label="Drive time">${[15, 30, 45, 60].map(k => `<option value="${k}">${k} min</option>`).join("")}</select></div>
+    <button id="dtbtn" class="tgo" type="button">Drive time</button>`;
 for (const [c] of PLACE_G) $("t-" + c).addEventListener("click", () => { S.inf = PLACE_G.map(x => x[0]).filter(x => x === c ? !S.inf.includes(x) : S.inf.includes(x)).join(""); update(); });
 $("f-from").addEventListener("change", () => { S.dfrom = $("f-from").value; update(); });
 $("f-dm").addEventListener("change", () => { S.dm = $("f-dm").value; update(); });
@@ -590,15 +592,10 @@ async function syncNp(fly) {
 }
 
 // ------------------------------------------------------------------ map view box: colour by + extra layers (moved off the side panel 2026-11-25)
-const ViewCtl = L.Control.extend({onAdd() {
-  const d = L.DomUtil.create("div", "pinbox mapctl");
-  d.innerHTML = `<button type="button" class="mtog" aria-expanded="false" aria-label="Colour and layers">View ▾</button><div class="mrow"><span class="ml">Colour by</span><span class="seg" id="f-colour">${[["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["ht", "Height"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("")}</span></div>
-    <div class="mrow"><span class="ml">Show</span>      <button type="button" class="chk" id="t-np" role="checkbox" aria-checked="false"><i></i>New planting (pilot)</button><button type="button" class="chk" id="t-npa" role="checkbox" aria-checked="false" hidden><i></i>Areas checked</button><button type="button" class="info" id="npinfo" aria-expanded="false" aria-label="About new planting">i</button></div>
-    <div class="dth" id="npinfotxt" hidden>A first test in Central Hawke's Bay only: forest seen on the 2025-26 LINZ aerial photos that the land-cover map does not show, read from the photos by AI in 1 ha squares.</div>`;
-  d.querySelector(".mtog").addEventListener("click", e => { const o = d.classList.toggle("open"); e.currentTarget.setAttribute("aria-expanded", o); });   // phones: folded
-  L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
-  return d; }});
-new ViewCtl({position: "topright"}).addTo(map);
+$("sec-view").innerHTML = `<h4>Colour by</h4><span class="seg" id="f-colour">${[["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["ht", "Height"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("")}</span>`;
+$("sec-np").innerHTML = `<h4>Aerial photo pilot <button type="button" class="info" id="npinfo" aria-expanded="false" aria-label="About new planting">i</button></h4>
+    <div class="dth" id="npinfotxt" hidden>A first test in Central Hawke's Bay only: forest seen on the 2025-26 LINZ aerial photos that the land-cover map does not show, read from the photos by AI in 1 ha squares.</div>
+    <div class="trow"><button type="button" class="tchip" id="t-np" role="checkbox" aria-checked="false" style="--c:${NP_C.young}">New planting</button><button type="button" class="tchip" id="t-npa" role="checkbox" aria-checked="false" style="--c:${NP_C.young}" hidden>Areas checked</button></div>`;
 $("f-colour").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { S.colour = b.dataset.v; update(); } });
 $("t-np").addEventListener("click", () => { S.np = S.np ? "" : "1"; syncNp(!!S.np); drawLegend(); writeHash(); });
 $("t-npa").addEventListener("click", () => { S.npa = S.npa ? "" : "1"; syncNp(false); drawLegend(); writeHash(); });

@@ -58,11 +58,8 @@ html,body{margin:0;height:100%;background:var(--ol-page);color:var(--ol-text);fo
 .fo .fl{flex:1;line-height:1.25}
 .fo .fn{color:var(--ol-muted);font-size:12px;font-variant-numeric:tabular-nums}
 .it .w{font-weight:400;color:var(--ol-muted);font-size:12px}
-.mapctl{flex-direction:column;align-items:stretch;gap:4px;max-width:400px}
-.mtog{display:none;font:600 12px var(--ol-font);border:0;background:none;padding:2px 4px;cursor:pointer;color:var(--ol-text2)}
 .mrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .ml{font-size:12px;font-weight:600;color:var(--ol-text2);width:62px}
-.mapctl .seg button{padding:3px 6px;font-size:12px}
 .chk{display:inline-flex;align-items:center;gap:5px}
 .chk[hidden]{display:none}
 #map{height:100%;background:var(--ol-page)}
@@ -135,7 +132,7 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 #pipe .pn{text-align:right;font-variant-numeric:tabular-nums;color:var(--ol-ink)}
 .legend .lh{font-size:12px;color:var(--ol-muted);margin-bottom:2px}
 .more{padding:10px 16px;color:var(--ol-muted);font-size:13px}
-.legend{position:absolute;left:12px;bottom:26px;z-index:500;background:var(--ol-card);border:1px solid var(--ol-line);
+.legend{position:absolute;right:12px;bottom:26px;z-index:500;background:var(--ol-card);border:1px solid var(--ol-line);
   border-radius:var(--ol-r-xl);box-shadow:var(--ol-shadow);padding:8px 10px;font-size:12.5px}
 .legend div.k{display:flex;align-items:center;gap:6px;margin:2px 0}
 .legend i{width:12px;height:12px;border-radius:2px;flex:none}
@@ -156,14 +153,37 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 .pinbox button{font:600 12.5px var(--ol-font);border:0;background:none;color:var(--ol-charcoal);cursor:pointer;padding:3px 6px}
 .pinbox button.on{background:var(--viz-tool-tint);color:var(--viz-tool-ink);border-radius:3px}
 .pinbox select{width:auto;padding:2px 4px;font-size:12.5px}
-.dtbox{flex-wrap:wrap;align-items:center;max-width:340px;gap:6px}
 .dtn{font-size:12px;color:var(--ol-muted)}
 .dtrow{flex-basis:100%;display:flex;align-items:center;gap:8px;padding:0 2px 4px;margin-bottom:2px;border-bottom:1px solid var(--ol-line)}
 .dtrow .ml{width:auto}
 .dtrow .chk{gap:4px;font-size:12.5px}
 .dtrow2{flex-basis:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-#f-from{max-width:170px}
-#dtbtn:disabled{opacity:.45;cursor:default}
+.tools{background:var(--ol-card);border:1px solid var(--ol-line2);border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.14);width:304px;overflow:hidden}
+.ttog{display:flex;justify-content:space-between;align-items:center;width:100%;border:0;background:none;padding:9px 12px;cursor:pointer;
+  font:700 13px var(--ol-font);color:var(--ol-ink)}
+.ttog b{font-weight:400;color:var(--ol-muted);transition:transform .15s}
+.tools.shut .ttog b{transform:rotate(-90deg)}
+.tools.shut .tbody{display:none}
+.tbody section{padding:9px 12px 10px;border-top:1px solid var(--ol-line)}
+.tbody h4{margin:0 0 6px;font:600 10.5px var(--ol-font);letter-spacing:.06em;text-transform:uppercase;color:var(--ol-muted);display:flex;align-items:center;gap:6px}
+.tbody .seg button{padding:4px 2px;font-size:12px}
+.trow{display:flex;align-items:center;gap:5px;flex-wrap:nowrap}
+.trow+.trow{margin-top:6px}
+.trow select{flex:1 1 0;width:auto;min-width:0;padding:4px 6px;font-size:12.5px;border:1px solid var(--ol-line2);border-radius:6px;background:var(--ol-paper);color:var(--ol-text)}
+#f-dm,#pinkm{flex:0 0 auto;width:auto}
+.tchip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--ol-line2);border-radius:999px;background:var(--ol-paper);
+  padding:3px 8px 3px 3px;font:500 12px var(--ol-font);white-space:nowrap;color:var(--ol-text2);cursor:pointer}
+.tchip:not(:has(.pdot)){padding-left:9px}
+.tchip.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 13%,var(--ol-card));color:var(--ol-ink);font-weight:600}
+.tchip[hidden]{display:none}
+.tbtn{border:1px solid var(--ol-line2);border-radius:6px;background:var(--ol-paper);padding:4px 10px;font:600 12.5px var(--ol-font);color:var(--ol-charcoal);cursor:pointer}
+.tbtn.on{background:var(--viz-tool-tint);color:var(--viz-tool-ink);border-color:transparent}
+.tx{border:0;background:none;color:var(--ol-muted);cursor:pointer;font-size:13px}
+.tgo{display:block;width:100%;margin-top:8px;border:0;border-radius:7px;padding:7px;background:var(--ol-charcoal);color:var(--ol-card);font:600 12.5px var(--ol-font);cursor:pointer}
+.tgo.on{background:var(--viz-tool-tint);color:var(--viz-tool-ink)}
+.tgo:disabled{opacity:.4;cursor:default}
+.tbody .dth{margin:-2px 0 6px;padding:0}
+@media (max-width:760px){.tools{width:250px}}
 .pdot{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;flex:none;box-shadow:0 0 0 1.5px #fff,0 1px 2px rgba(0,0,0,.3)}
 .pdot svg{width:11px;height:11px}
 .legend .k .pdot{margin-right:6px}
@@ -198,11 +218,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 @media (max-width:760px){
   #app{grid-template-columns:minmax(0,1fr);grid-template-rows:55vh auto auto;grid-template-areas:"map" "side" "res";height:auto}   /* minmax: a long line must not widen the page */
   #side,#res{max-height:none;overflow:visible;border:0;border-top:1px solid var(--ol-line)}
-  .mapctl{max-width:250px}
-  .mtog{display:block}
-  .mapctl:not(.open) .mrow,.mapctl:not(.open) .dth{display:none}
-  .mapctl .ml{width:100%}
-  .mapctl .seg{flex-wrap:wrap}
   .legend{bottom:22px}
 }
 </style>
@@ -252,6 +267,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=53"></script>
+<script src="forest.js?v=54"></script>
 </body>
 </html>
