@@ -141,10 +141,22 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 .pinbox button{font:600 12.5px var(--ol-font);border:0;background:none;color:var(--ol-charcoal);cursor:pointer;padding:3px 6px}
 .pinbox button.on{background:var(--viz-tool-tint);color:var(--viz-tool-ink);border-radius:3px}
 .pinbox select{width:auto;padding:2px 4px;font-size:12.5px}
-.dtbox{flex-wrap:wrap;align-items:center;max-width:300px}
+.dtbox{flex-wrap:wrap;align-items:center;max-width:340px;gap:6px}
 .dtn{font-size:12px;color:var(--ol-muted)}
 .dtrow{flex-basis:100%;display:flex;align-items:center;gap:8px;padding:0 2px 4px;margin-bottom:2px;border-bottom:1px solid var(--ol-line)}
 .dtrow .ml{width:auto}
+.dtrow .chk{gap:4px;font-size:12.5px}
+.dtrow2{flex-basis:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#f-from{max-width:170px}
+#dtbtn:disabled{opacity:.45;cursor:default}
+.pdot{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;flex:none;box-shadow:0 0 0 1.5px #fff,0 1px 2px rgba(0,0,0,.3)}
+.pdot svg{width:11px;height:11px}
+.legend .k .pdot{margin-right:6px}
+.pm{background:none;border:0}
+.pm span{display:grid;place-items:center;border-radius:50%;background:var(--c);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);box-sizing:border-box;transition:transform .15s}
+.pm span:hover{transform:scale(1.18)}
+.pm span.on{box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 35%,transparent),0 1px 4px rgba(0,0,0,.4)}
+.pm svg{width:62%;height:62%}
 .dth{flex-basis:100%;font-size:12px;line-height:1.45;color:var(--ol-muted);padding:2px 4px}
 .dth button{padding:1px 5px;text-decoration:underline}
 .dth .info{text-decoration:none;padding:0;margin-left:4px;vertical-align:middle}
@@ -226,6 +238,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=50"></script>
+<script src="forest.js?v=51"></script>
 </body>
 </html>

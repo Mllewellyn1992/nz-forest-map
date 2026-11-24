@@ -170,24 +170,24 @@ function syncMask() {                 // patches follow the list whenever a filt
 // and a live count; ticks inside a tab widen ("this OR that"), tabs narrow each other. Results grouped on the right.
 const FK = ["kind", "due", "region", "district", "size", "fm", "nf", "ht"];   // "How the manager is known" dropped (Mike 2026-11-25); old mgr= links ignored; Certification dropped too (Mike: Manager already shows FSC)       // the tick filters (lists)
 const S = {};
-const BLANK = {q: "", colour: "due", grp: "blocks", pin: null, km: 25, inf: "", dp: [], dm: "60", np: "", npa: "", ...Object.fromEntries(FK.map(k => [k, []]))};
+const BLANK = {q: "", colour: "due", grp: "blocks", pin: null, km: 25, inf: "", dp: [], dfrom: "", dt: "", dm: "60", np: "", npa: "", ...Object.fromEntries(FK.map(k => [k, []]))};
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])));
-  for (const k of ["q", "colour", "inf", "dm", "np", "npa", "grp"]) if (p.has(k)) S[k] = p.get(k);
-  if (S.inf === "1") S.inf = "pm";                           // before 2026-11-25 one tick showed both
+  for (const k of ["q", "colour", "inf", "dfrom", "dt", "dm", "np", "npa", "grp"]) if (p.has(k)) S[k] = p.get(k);
+  S.inf = S.inf === "1" || S.inf === "pm" ? "pso" : S.inf === "m" ? "so" : S.inf.replace(/[^pso]/g, "");   // older links: one tick, then ports / mills
   if (p.has("tab")) S.grp = p.get("tab");                    // links from before 2026-11-25
   if (!["blocks", "district", "region", "managers", "charts"].includes(S.grp)) S.grp = "blocks";
   for (const k of FK) if (p.has(k)) S[k] = p.get(k).split(k === "fm" ? "|" : ",").filter(v => v !== "" && v !== "-1");   // old links held one value
   if (p.has("km")) S.km = /^d\d+$/.test(p.get("km")) ? p.get("km") : +p.get("km") || 25;   // "d30" = a 30 min drive
   S.pin = p.get("pin") ? p.get("pin").split(",").map(Number) : null;
-  S.dp = p.get("dp") ? p.get("dp").split("|") : [];          // ports / mills ticked for drive time ("p:name" / "m:name")
+  if (p.get("dp")) { const dp = p.get("dp").split("|");        // links from before 2026-11-25 held the ticked places: drive on, from those kinds
+    S.dt = "1"; S.inf = [...new Set([...S.inf, ...dp.map(k => k[0] === "p" ? "p" : "s")])].join(""); if (dp.length === 1) S.dfrom = dp[0]; }
 }
 function writeHash() {
   const p = new URLSearchParams();
-  for (const k of ["q", "colour", "grp", "inf", "dm", "np", "npa"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
+  for (const k of ["q", "colour", "grp", "inf", "dfrom", "dt", "dm", "np", "npa"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
   for (const k of FK) if (S[k].length) p.set(k, S[k].join(k === "fm" ? "|" : ","));
-  if (S.dp.length) p.set("dp", S.dp.join("|"));
   if (S.pin) { p.set("pin", S.pin.map(v => v.toFixed(4)).join(",")); p.set("km", S.km); }
   history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
 }
@@ -231,7 +231,7 @@ function drawFilters() {
     $("filters").innerHTML = FACETS.map(f => { const s = S[f.id], o = s.length ? new Map(f.opts().map(x => [x[0], x[1]])) : null;
       return `<button type="button" class="ft${s.length ? " set" : ""}" data-open="${f.id}"><span class="ftm"><span class="ftt">${esc(f.title)}${s.length ? ` <em>${s.length}</em>` : ""}</span>
         <span class="fts">${s.length ? esc(s.map(k => o.get(k) || k).join(", ")) : "Any"}</span></span><span class="chev">›</span></button>`; }).join("")
-      + (FK.some(k => S[k].length) || S.q || S.pin || S.dp.length ? `<button type="button" class="lnk clearall" id="clearall">Clear all filters</button>` : "");
+      + (FK.some(k => S[k].length) || S.q || S.pin || S.dt ? `<button type="button" class="lnk clearall" id="clearall">Clear all filters</button>` : "");
     return;
   }
   const s = S[f.id], q = (finds[f.id] || "").toLowerCase();
@@ -264,7 +264,7 @@ $("filters").addEventListener("input", e => { if (e.target.id !== "ffind") retur
   drawFilters(); const ff = $("ffind"); ff.focus(); ff.setSelectionRange(pos, pos); });
 let qt;
 $("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { S.q = $("q").value.trim(); update(); }, 200); });
-$("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, np = S.np, npa = S.npa; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, np, npa}); $("q").value = "";
+$("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, np = S.np, npa = S.npa; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, np, npa}); $("q").value = "";   // drive time is a filter: Clear turns it off
   setPin(null); update(); olFitNZ(map); });
 $("aboutbtn").addEventListener("click", () => $("about").classList.add("on"));
 $("aboutclose").addEventListener("click", () => $("about").classList.remove("on"));
@@ -451,45 +451,46 @@ function millCard(M) {
     ${/^town/.test(M.at || "") ? `<div class="s">Pin at the town centre, not the mill gate</div>` : ""}
     ${M.src ? `<div class="links"><a href="${esc(M.src)}" target="_blank" rel="noopener">${/google\.com\/maps/.test(M.src) ? "Google Maps listing" : "Status source"}</a></div>` : ""}</div>`;
 }
-const PORT_C = "#1f4e79", MILL_C = dark ? "#f2efe8" : "#1b1d21", MILL_RING = dark ? "#1b1d21" : "#ffffff";   // mills: black dots, apart from every forest colour
-let infKey = null;
-// drive-time tool (Mike 2026-11-25 "put this as a tool on the map ... add mills by ticking them and then select a distance"):
-// while the tool is open every port and mill shows and a click ticks it; the forests within S.dm minutes of any ticked place count
-let dpick = false;
+// ports and mills + drive time in one box (Mike 2026-11-25: "very simple" - tick ports / mills to show them, pick one place or all
+// of them, a time, press Drive time). S.inf letters: p ports, s sawmills, o pulp and panel mills; S.dfrom one place key or "" = all ticked
+const PLACE_G = [["p", "Ports"], ["s", "Sawmills"], ["o", "Pulp and panel mills"]];
+const PLACE_C = {p: dark ? "#4a90e2" : "#1f5fa8", s: dark ? "#c07be0" : "#8e3fb0", o: dark ? "#9d7bd8" : "#5b2a86"};
+const PLACE_SVG = {p: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.2"/><path d="M12 7.5V21M7.5 11h9M4.5 14a7.5 7.5 0 0 0 15 0"/></svg>`,
+  s: `<svg viewBox="0 0 24 24" fill="#fff"><path d="M12 2.5 18 11h-3.4l4.4 6.5H13.5V22h-3v-4.5H5L9.4 11H6z"/></svg>`,
+  o: `<svg viewBox="0 0 24 24" fill="#fff"><path d="M3 21V11l5 3v-3l5 3V5h2.2v4H18V5h2.2v16z"/></svg>`};
+const millG = M => M.kind === "Sawmill" ? "s" : "o";
 const placeKey = (g, n) => (g === "ports" ? "p:" : "m:") + n;
-const ticked = k => S.dp.includes(k);
-// S.inf: "p" ports, "m" mills, "pm" both (Mike 2026-11-25: ports and mills ticked apart, in the same box as drive time)
-const infShow = g => { const c = g === "ports" ? "p" : "m";      // while picking: only the kind already ticked (Mike: show just what the drive applies to)
-  return S.inf.includes(c) || (dpick && !S.inf && (!S.dp.length || S.dp.some(x => x[0] === c))); };
-const infOn = () => !!S.inf || dpick || S.dp.length > 0;
+function places() {                                   // the ticked kinds' places, [{k, n, g}]
+  if (!INF.ports) return [];
+  return [...(S.inf.includes("p") ? INF.ports.ports.map(P => ({k: placeKey("ports", P.n), n: P.n, g: "p"})) : []),
+    ...(INF.mills || []).filter(M => S.inf.includes(millG(M))).map(M => ({k: placeKey("mills", M.n), n: M.n, g: millG(M)}))];
+}
+const dpList = () => { if (!S.dt) return []; const ps = places(); return (S.dfrom && ps.some(p => p.k === S.dfrom) ? ps.filter(p => p.k === S.dfrom) : ps).map(p => p.k); };
+const infOn = () => !!S.inf;
+let infKey = null;
+const placeIcon = (g, size, on) => L.divIcon({className: "pm", iconSize: [size, size],
+  html: `<span class="${on ? "on" : ""}" style="--c:${PLACE_C[g]};width:${size}px;height:${size}px">${PLACE_SVG[g]}</span>`});
 function buildInf() {
-  infKey = S.inf + dpick + S.dp.join("|");
+  infKey = S.inf + S.dp.join("|");
   INF.layer.clearLayers();
-  const pr = L.canvas({padding: .5});
-  const mk = (ll, k, base, card, tip) => {
-    const on = ticked(k);
-    if (!infShow(k[0] === "p" ? "ports" : "mills") && !on) return;
-    const m = L.circleMarker(ll, {renderer: pr, ...base, ...(on ? {color: DRIVE_C, weight: 4, radius: base.radius + 2} : {}), bubblingMouseEvents: false})
-      .bindTooltip(tip + (dpick ? `<br><i>${on ? "Click to untick" : "Click to tick for drive time"}</i>` : ""), {direction: "top"}).addTo(INF.layer);
-    m.on("click", () => {
-      if (dpick) { S.dp = on ? S.dp.filter(x => x !== k) : [...S.dp, k]; update(); return; }
-      L.popup({maxWidth: 320}).setLatLng(ll).setContent(card()).openOn(map);
-    });
+  const used = new Set(S.dp);
+  const mk = (ll, g, k, size, card, tip) => {
+    if (!S.inf.includes(g)) return;
+    L.marker(ll, {icon: placeIcon(g, size, used.has(k)), riseOnHover: true}).bindTooltip(tip, {direction: "top", offset: [0, -size / 2]})
+      .on("click", () => L.popup({maxWidth: 320}).setLatLng(ll).setContent(card()).openOn(map)).addTo(INF.layer);
   };
-  (INF.mills || []).forEach(M => mk(M.ll, placeKey("mills", M.n), {radius: 5.5, color: MILL_RING, weight: 1.5, fillColor: MILL_C, fillOpacity: 1},
-    () => millCard(M), `<b>${esc(M.n)}</b><br>${esc(M.kind)}`));
+  (INF.mills || []).forEach(M => mk(M.ll, millG(M), placeKey("mills", M.n), 22, () => millCard(M), `<b>${esc(M.n)}</b><br>${esc(M.kind)}`));
   const top = Math.max(...INF.ports.ports.map(P => P.logs || 0));
-  INF.ports.ports.forEach(P => mk(P.ll, placeKey("ports", P.n), {radius: 6 + 8 * Math.sqrt((P.logs || 0) / top), color: "#fff", weight: 1.5, fillColor: PORT_C, fillOpacity: .9},
+  INF.ports.ports.forEach(P => mk(P.ll, "p", placeKey("ports", P.n), Math.round(22 + 12 * Math.sqrt((P.logs || 0) / top)),
     () => portCard(P, INF.ports.period), `<b>${esc(P.n)}</b><br>${P.logs ? m3(P.logs) + " m³ logs a year" : "Export port"}`));
 }
 let infLoad = null;
 const loadInf = () => infLoad = infLoad || Promise.all([get("ports.json"), get("mills.json").then(d => d.mills).catch(() => [])])
-  .then(([p, m]) => { INF.ports = p; INF.mills = m; buildInf(); });
+  .then(([p, m]) => { INF.ports = p; INF.mills = m; if (S.dt) update(); else { buildInf(); syncDtCtl(); } });
 async function syncInf() {
-  for (const [id, c] of [["t-port", "p"], ["t-mill", "m"]]) { const on = S.inf.includes(c); $(id).classList.toggle("on", on); $(id).setAttribute("aria-checked", String(on)); }
   if (!infOn()) { map.removeLayer(INF.layer); return; }
   await loadInf();
-  if (infKey !== S.inf + dpick + S.dp.join("|")) buildInf();
+  if (infKey !== S.inf + S.dp.join("|")) buildInf();
   if (infOn()) { INF.layer.addTo(map); drawLegend(); }
 }
 
@@ -499,6 +500,7 @@ const DRIVE = {d: null, layer: L.layerGroup(), set: [], key: "", idx: {}};
 map.createPane("drive").style.zIndex = 350;                              // under the forests
 const driveRnd = L.canvas({pane: "drive", padding: .5});
 const DRIVE_C = dark ? "#6fa8dc" : "#1f4e79";
+const AREA_C = {p: PLACE_C.p, m: PLACE_C.s};          // drive areas: ports blue, mills purple (Mike: apart)
 let driveLoad = null;
 const loadDrive = () => driveLoad = driveLoad || get("drive.json").then(d => {
   const bb = rings => { let a = 90, b = 180, c = -90, e = -180; rings.forEach(r => r.forEach(([y, x]) => { a = Math.min(a, y); c = Math.max(c, y); b = Math.min(b, x); e = Math.max(e, x); })); return [a, b, c, e]; };
@@ -510,43 +512,46 @@ const inArea = (A, ll) => ll.lat >= A.bb[0] && ll.lat <= A.bb[2] && ll.lng >= A.
 const inDrive = b => { if (!DRIVE.d) return true; const r = DRIVE.d.bp[b.id]; if (!r) return false;
   const ks = new Set(S.dp.map(k => DRIVE.idx[k])); return r.some(([k, m]) => ks.has(k) && m <= +S.dm); };
 const dpName = k => k.slice(2);
-const dpLabel = () => S.dp.length === 1 ? dpName(S.dp[0]) : `${S.dp.length} ports / mills`;
+const dpLabel = () => { if (S.dfrom && S.dp.length === 1) return dpName(S.dp[0]);
+  const t = PLACE_G.filter(([c]) => S.inf.includes(c)).map(([, t]) => t.toLowerCase()); return t.length > 1 ? t.slice(0, -1).join(", ") + " and " + t[t.length - 1] : t[0] || "nothing"; };
+function syncDtCtl() {
+  for (const [c] of PLACE_G) { const x = $("t-" + c), on = S.inf.includes(c); x.classList.toggle("on", on); x.setAttribute("aria-checked", String(on)); }
+  const ps = places(), sel = $("f-from");
+  sel.innerHTML = `<option value="">${ps.length ? "All ticked (" + ps.length + ")" : "Tick ports or mills first"}</option>` + PLACE_G.filter(([c]) => S.inf.includes(c)).map(([c, t]) =>
+    `<optgroup label="${t}">${ps.filter(p => p.g === c).sort((a, b) => a.n.localeCompare(b.n)).map(p => `<option value="${esc(p.k)}">${esc(p.n)}</option>`).join("")}</optgroup>`).join("");
+  sel.value = ps.some(p => p.k === S.dfrom) ? S.dfrom : ""; sel.disabled = !ps.length;
+  $("f-dm").value = S.dm; $("dtbtn").classList.toggle("on", !!S.dt); $("dtbtn").disabled = !ps.length && !S.dt;
+  $("dtbtn").textContent = S.dt ? "Drive time on ✕" : "Drive time";
+}
 function syncDrive() {
-  $("dtbtn").classList.toggle("on", dpick); $("f-dm").value = S.dm;
-  $("dtcount").textContent = S.dp.length ? `${S.dp.length} ticked` : "";
-  $("dtclear").hidden = !S.dp.length; $("dthelp").hidden = !dpick;
+  syncDtCtl();
   const key = S.dp.length ? S.dp.join("|") + S.dm : "";
   if (key === DRIVE.key) return;
   DRIVE.key = key; DRIVE.layer.clearLayers(); DRIVE.set = [];
   if (!S.dp.length) { map.removeLayer(DRIVE.layer); return; }
   loadDrive().then(d => {
     if (!d || DRIVE.key !== key) return;
-    DRIVE.set = S.dp.map(k => ({n: dpName(k), a: ((d[k[0] === "p" ? "ports" : "mills"][dpName(k)]) || {})[S.dm]})).filter(x => x.a);
-    DRIVE.set.forEach(x => L.polygon(x.a.rings, {renderer: driveRnd, color: DRIVE_C, weight: 1.5, opacity: .8, fillColor: DRIVE_C, fillOpacity: dark ? .22 : .16, interactive: false}).addTo(DRIVE.layer));
+    DRIVE.set = S.dp.map(k => ({k, n: dpName(k), a: ((d[k[0] === "p" ? "ports" : "mills"][dpName(k)]) || {})[S.dm]})).filter(x => x.a);
+    DRIVE.set.forEach(x => { const c = AREA_C[x.k[0]];
+      L.polygon(x.a.rings, {renderer: driveRnd, color: c, weight: 1.5, opacity: .85, fillColor: c, fillOpacity: dark ? .2 : .14, interactive: false}).addTo(DRIVE.layer); });
     DRIVE.layer.addTo(map);
     update();                       // the forest filter needs the areas
   });
 }
 const DtCtl = L.Control.extend({onAdd() {
   const d = L.DomUtil.create("div", "pinbox dtbox");
-  d.innerHTML = `<div class="dtrow"><span class="ml">Show</span><button type="button" class="chk" id="t-port" role="checkbox" aria-checked="false"><i></i>Ports</button><button type="button" class="chk" id="t-mill" role="checkbox" aria-checked="false"><i></i>Mills</button></div>
-    <button id="dtbtn" type="button" title="Click, then click ports and mills on the map to tick them: only forests within the drive time of a ticked place are counted">Drive time</button>
-    <select id="f-dm" aria-label="Drive time">${[15, 30, 45, 60].map(k => `<option value="${k}">${k} min</option>`).join("")}</select>
-    <span id="dtcount" class="dtn"></span><button id="dtclear" type="button" hidden title="Untick all">✕</button>
-    <div id="dthelp" class="dth" hidden>Drive from: <button type="button" data-all="ports">Ports</button><button type="button" data-all="saw">Sawmills</button><button type="button" data-all="mills">All mills</button>
-      <button type="button" class="info" id="dtinfo" aria-expanded="false" aria-label="About drive time">i</button>
-      <div id="dtinfotxt" hidden>Tick all of one kind here, or click single ports and mills on the map. By car on OpenStreetMap roads, to the nearest edge of each forest. A loaded log truck is slower.</div></div>`;
+  d.innerHTML = `<div class="dtrow">${PLACE_G.map(([c, t]) => `<button type="button" class="chk" id="t-${c}" role="checkbox" aria-checked="false"><i></i><span class="pdot" style="background:${PLACE_C[c]}">${PLACE_SVG[c]}</span>${c === "o" ? "Pulp / panel" : t}</button>`).join("")}</div>
+    <div class="dtrow2"><select id="f-from" aria-label="Drive from"></select><select id="f-dm" aria-label="Drive time">${[15, 30, 45, 60].map(k => `<option value="${k}">${k} min</option>`).join("")}</select>
+      <button id="dtbtn" type="button">Drive time</button><button type="button" class="info" id="dtinfo" aria-expanded="false" aria-label="About drive time">i</button></div>
+    <div id="dtinfotxt" class="dth" hidden>Shows the forests within the drive time of the ticked ports and mills, or of the one picked. By car on OpenStreetMap roads, to the nearest edge of each forest. A loaded log truck is slower.</div>`;
   L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
   return d; }});
 new DtCtl({position: "topleft"}).addTo(map);
-$("dtbtn").addEventListener("click", async () => { dpick = !dpick; if (dpick) await loadInf(); update(); });
+for (const [c] of PLACE_G) $("t-" + c).addEventListener("click", () => { S.inf = PLACE_G.map(x => x[0]).filter(x => x === c ? !S.inf.includes(x) : S.inf.includes(x)).join(""); update(); });
+$("f-from").addEventListener("change", () => { S.dfrom = $("f-from").value; update(); });
 $("f-dm").addEventListener("change", () => { S.dm = $("f-dm").value; update(); });
-$("dtclear").addEventListener("click", () => { S.dp = []; update(); });
+$("dtbtn").addEventListener("click", () => { S.dt = S.dt ? "" : "1"; update(); });
 $("dtinfo").addEventListener("click", () => { const t = $("dtinfotxt"); t.hidden = !t.hidden; $("dtinfo").setAttribute("aria-expanded", String(!t.hidden)); });
-$("dthelp").addEventListener("click", async e => { const x = e.target.closest("button[data-all]"); if (!x) return; await loadInf();
-  const add = x.dataset.all === "ports" ? INF.ports.ports.map(P => placeKey("ports", P.n))
-    : INF.mills.filter(M => x.dataset.all === "mills" || M.kind === "Sawmill").map(M => placeKey("mills", M.n));
-  S.dp = [...new Set([...S.dp, ...add])]; update(); });
 // nearest port / mill by drive time, for the forest card
 function driveTo(b, g, filt) {
   if (!DRIVE.d) return null;
@@ -595,8 +600,6 @@ const ViewCtl = L.Control.extend({onAdd() {
   return d; }});
 new ViewCtl({position: "topright"}).addTo(map);
 $("f-colour").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { S.colour = b.dataset.v; update(); } });
-for (const [id, c] of [["t-port", "p"], ["t-mill", "m"]]) $(id).addEventListener("click", () => {
-  S.inf = ["p", "m"].filter(x => x === c ? !S.inf.includes(x) : S.inf.includes(x)).join(""); syncInf(); drawLegend(); writeHash(); });
 $("t-np").addEventListener("click", () => { S.np = S.np ? "" : "1"; syncNp(!!S.np); drawLegend(); writeHash(); });
 $("t-npa").addEventListener("click", () => { S.npa = S.npa ? "" : "1"; syncNp(false); drawLegend(); writeHash(); });
 $("npinfo").addEventListener("click", () => { const t = $("npinfotxt"); t.hidden = !t.hidden; $("npinfo").setAttribute("aria-expanded", String(!t.hidden)); });
@@ -615,9 +618,10 @@ function drawLegend() {
     : S.colour === "nf" ? Object.keys(NF).map(l => k(C.nf[l], NF[l])).join("") + k(VIZ.none, "Mānuka / kānuka")
     : S.colour === "ht" ? `<div class="lh">${heightsOn() ? "Height today (estimated), each 80 m patch" : "Height today (estimated), middle of block"}</div>` + HT_TEXT.map((n, i) => k(C.ht[i], n)).reverse().join("") + k(VIZ.none, "No lidar yet")
     : KIND.map((n, i) => k(C.kind[i], n)).join("")))
-    + (infOn() ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + (infShow("ports") || S.dp.some(x => x[0] === "p") ? k(PORT_C, "Export port (size = logs)", 1) : "")
-      + (INF.mills && INF.mills.length && (infShow("mills") || S.dp.some(x => x[0] === "m")) ? k(MILL_C, "Mill", 1) : "") + (S.dp.length ? `<div class="k"><i style="background:transparent;border:3px solid ${DRIVE_C};border-radius:50%"></i>Ticked for drive time</div>` : "") : "")
-    + (S.dp.length ? k(DRIVE_C + "40", `Within ${S.dm} min drive of ${dpLabel()}`) : "")
+    + (infOn() ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + PLACE_G.filter(([c]) => S.inf.includes(c)).map(([c, t]) =>
+      `<div class="k"><span class="pdot" style="background:${PLACE_C[c]}">${PLACE_SVG[c]}</span>${c === "p" ? "Export port (size = logs)" : t}</div>`).join("") : "")
+    + (S.dp.some(k => k[0] === "p") ? k(AREA_C.p + "55", `Within ${S.dm} min drive of ${S.dfrom && S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a port"}`) : "")
+    + (S.dp.some(k => k[0] === "m") ? k(AREA_C.m + "55", `Within ${S.dm} min drive of ${S.dfrom && S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a mill"}`) : "")
     + (S.np && NP.d ? `<div class="lh" style="margin-top:4px">Aerial photos 2025-26 (pilot)</div>` + k(NP_C.young, NP_T.young) + k(NP_C.older, NP_T.older) + (S.npa ? `<div class="k"><i style="background:transparent;border:1.5px dashed ${NP_C.young}"></i>Area checked on the photos</div>` : "") : "");
 }
 
@@ -793,6 +797,7 @@ function syncControls() {
   $("f-colour").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === S.colour));
 }
 function update(zoomTo) {
+  S.dp = dpList();                                  // the places drive time applies to (empty when off)
   syncControls(); syncInf(); syncDrive(); syncNp(); draw(); syncMask(); syncStands(); summary(); drawLegend(); drawList(); writeHash();
   if (zoomTo && shown.length && (S.region.length || S.district.length)) {
     map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
