@@ -32,7 +32,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 40;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 41;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const tileIndex = d => fetch(d + "/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -50,7 +50,7 @@ blocks.forEach(b => {
   b.text = [R[b.r], D[b.d], b.tt, KIND[b.k], ...b.firms, ...b.mg.map(m => m[1]), b.rm[1] || ""].join(" ").toLowerCase();
   b.ll = L.latLng(b.c[0], b.c[1]);
   b.ht = E.h[b.id] && E.h[b.id][0] != null ? E.h[b.id] : null;      // [avg canopy median m, tallest tenth m, flight year, % flown, % under 2 m, top height median m, top tallest tenth m]
-  b.top = b.ht ? (b.ht[5] != null ? b.ht[5] : b.ht[0]) : null;        // top height where read, else average canopy
+  b.top = b.ht ? (b.ht[7] != null ? b.ht[7] : b.ht[5] != null ? b.ht[5] : b.ht[0]) : null;   // height today, else top height when flown, else average canopy
   b.hts = b.ht ? HT_STEPS.findLastIndex(t => b.top >= t) : -1;
   b.vk = E.vb[b.id] || "";                                           // MPI yield table region
 });
@@ -256,7 +256,7 @@ function tipOf(b) {
   const what = S.colour === "mgr" ? (b.firms.length ? b.firms.join(", ") : MGR[b.mgr])
     : S.colour === "nf" ? (b.nfc ? NF[b.nfc] : KIND[b.k])
     : S.colour === "kind" ? KIND[b.k]
-    : S.colour === "ht" ? (b.ht ? `Top height ${b.top} m (flown ${b.ht[2]})` : "No lidar here yet")
+    : S.colour === "ht" ? (b.ht ? `Height today ~${b.top} m (lidar ${b.ht[2]})` : "No lidar here yet")
     : b.k !== 0 ? KIND[b.k] : dueOn() ? `${fmt(b.hg[+S.due])} ha ${HG[+S.due].replace(/^Due /, "due ").replace(/^Felled/, "felled").replace(/^(\d)/, "due $1")}`
     : `${fmt(b.soon)} ha due by 2033`;
   return `<b>${esc(what)}</b><br>${fmt(b.ha)} ha · ${esc(D[b.d] || "")}`;
@@ -491,7 +491,7 @@ function drawLegend() {
     : S.colour === "due" ? `<div class="lh">Share of block due by 2033</div>` + SOON_TEXT.map((n, i) => k(C.soon[i], n)).reverse().join("") + k(VIZ.none, "Mānuka / kānuka")
     : S.colour === "mgr" ? Object.keys(MGR).map(l => k(C.mgr[l], MGR[l])).join("")
     : S.colour === "nf" ? Object.keys(NF).map(l => k(C.nf[l], NF[l])).join("") + k(VIZ.none, "Mānuka / kānuka")
-    : S.colour === "ht" ? `<div class="lh">${heightsOn() ? "Top height, each 80 m patch, when flown" : "Top height, middle of block"}</div>` + HT_TEXT.map((n, i) => k(C.ht[i], n)).reverse().join("") + k(VIZ.none, "No lidar yet")
+    : S.colour === "ht" ? `<div class="lh">${heightsOn() ? "Height today (estimated), each 80 m patch" : "Height today (estimated), middle of block"}</div>` + HT_TEXT.map((n, i) => k(C.ht[i], n)).reverse().join("") + k(VIZ.none, "No lidar yet")
     : KIND.map((n, i) => k(C.kind[i], n)).join("")))
     + (S.inf || S.dt ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + (infShow("port") ? k(PORT_C, "Export port (size = logs)", 1) : "")
       + (INF.mills && INF.mills.length && (infShow("Sawmill") || infShow("Pulp mill")) ? k(MILL_C, S.inf || S.dt === "mills" ? "Mill" : "Sawmill", 1) : "") : "")
