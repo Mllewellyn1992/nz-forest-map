@@ -32,7 +32,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 45;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 46;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const tileIndex = d => fetch(d + "/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -119,7 +119,7 @@ const Stands = L.GridLayer.extend({
       for (let p = 0; p < a.length; p += 4) {
         if (!a[p + 3]) continue;
         const k = o.rgb.findIndex(c => Math.abs(c[0] - a[p]) + Math.abs(c[1] - a[p + 1]) + Math.abs(c[2] - a[p + 2]) < 12);
-        if (k < 0 || (only >= 0 && k !== only)) { a[p + 3] = 0; continue; }
+        if (k < 0 || (only && !only.has(k))) { a[p + 3] = 0; continue; }
         a[p] = to[k][0]; a[p + 1] = to[k][1]; a[p + 2] = to[k][2]; a[p + 3] = 215;
       }
       g.putImageData(d, 0, 0);
@@ -138,10 +138,10 @@ const Stands = L.GridLayer.extend({
   }
 });
 const stands = new Stands({pane: "stands", minZoom: STAND_Z, maxZoom: 19, updateWhenZooming: false, dir: "stands", set: STAND_SET, rgb: STAND_RGB,
-  to: () => C.hg, only: () => S.due === "" ? -1 : +S.due});
+  to: () => C.hg, only: () => S.due.length ? new Set(S.due.map(Number)) : null});
 // Height view: every 80 m lidar cell coloured by tree height (height_tiles.py), the same way as the harvest patches
 const heights = new Stands({pane: "stands", minZoom: STAND_Z, maxZoom: 19, updateWhenZooming: false, dir: "heights", set: HT_SET, rgb: HT_RGB,
-  to: () => C.ht, only: () => -1});
+  to: () => C.ht, only: () => null});
 const mapReady = () => map.getSize().x > 0 && Number.isFinite(map.getZoom()) && map.getZoom() >= STAND_Z;
 const standsOn = () => S.colour === "due" && mapReady() && STAND_SET.size > 0;
 const heightsOn = () => S.colour === "ht" && mapReady() && HT_SET.size > 0;
@@ -151,8 +151,8 @@ function syncStands() {
   const on = standsOn();
   if (on && !map.hasLayer(stands)) stands.addTo(map);
   if (!on && map.hasLayer(stands)) map.removeLayer(stands);
-  if (on && standsWere !== S.due + standMask) stands.redraw();
-  standsWere = on ? S.due + standMask : null;
+  if (on && standsWere !== S.due.join() + standMask) stands.redraw();
+  standsWere = on ? S.due.join() + standMask : null;
   const hon = heightsOn();
   if (hon && !map.hasLayer(heights)) heights.addTo(map);
   if (!hon && map.hasLayer(heights)) map.removeLayer(heights);
@@ -166,61 +166,114 @@ function syncMask() {                 // patches follow the list whenever a filt
 }
 
 // ------------------------------------------------------------------ state (kept in the address bar)
+// Mike 2026-11-25: filters "like AquilaLens" - a list of filter tabs on the left, each opens to every option with a tick box
+// and a live count; ticks inside a tab widen ("this OR that"), tabs narrow each other. Results grouped on the right.
+const FK = ["kind", "due", "region", "district", "size", "fm", "mgr", "nf", "ht", "fsc"];       // the tick filters (lists)
 const S = {};
-const BLANK = {q: "", kind: "", due: "", region: -1, district: -1, size: "", mgr: "", nf: "", colour: "due", tab: "blocks", pin: null, km: 25, fm: [], inf: "", dp: [], dm: "60", np: ""};
+const BLANK = {q: "", colour: "due", grp: "blocks", pin: null, km: 25, inf: "", dp: [], dm: "60", np: "", ...Object.fromEntries(FK.map(k => [k, []]))};
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
-  Object.assign(S, BLANK);
-  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "inf", "dm", "np"]) if (p.has(k)) S[k] = p.get(k);
-  for (const k of ["region", "district"]) if (p.has(k)) S[k] = +p.get(k);
+  Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])));
+  for (const k of ["q", "colour", "inf", "dm", "np", "grp"]) if (p.has(k)) S[k] = p.get(k);
+  if (p.has("tab")) S.grp = p.get("tab");                    // links from before 2026-11-25
+  if (!["blocks", "district", "region", "managers"].includes(S.grp)) S.grp = "blocks";
+  for (const k of FK) if (p.has(k)) S[k] = p.get(k).split(k === "fm" ? "|" : ",").filter(v => v !== "" && v !== "-1");   // old links held one value
   if (p.has("km")) S.km = /^d\d+$/.test(p.get("km")) ? p.get("km") : +p.get("km") || 25;   // "d30" = a 30 min drive
-  if (!["blocks", "managers"].includes(S.tab)) S.tab = "blocks";
   S.pin = p.get("pin") ? p.get("pin").split(",").map(Number) : null;
-  S.fm = p.get("fm") ? p.get("fm").split("|") : [];          // firms picked in the Managers tab
   S.dp = p.get("dp") ? p.get("dp").split("|") : [];          // ports / mills ticked for drive time ("p:name" / "m:name")
 }
 function writeHash() {
   const p = new URLSearchParams();
-  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "region", "district", "inf", "dm", "np"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
-  if (S.fm.length) p.set("fm", S.fm.join("|"));
+  for (const k of ["q", "colour", "grp", "inf", "dm", "np"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
+  for (const k of FK) if (S[k].length) p.set(k, S[k].join(k === "fm" ? "|" : ","));
   if (S.dp.length) p.set("dp", S.dp.join("|"));
   if (S.pin) { p.set("pin", S.pin.map(v => v.toFixed(4)).join(",")); p.set("km", S.km); }
   history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
 }
 readHash();
+const due1 = () => S.due.length === 1 ? +S.due[0] : -1;          // one harvest period picked
+const dueHa = b => S.due.length ? S.due.reduce((s, i) => s + b.hg[+i], 0) : b.ha;
+const dueWord = i => HG[i].replace(/^Due /, "due ").replace(/^Felled/, "felled").replace(/^(\d)/, "due $1");
 
-// ------------------------------------------------------------------ the dropdowns
-const opts = (first, list) => `<option value="">${first}</option>` + list.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
-$("f-kind").innerHTML = opts("All", KIND.map((t, i) => [i, t]));
-$("f-due").innerHTML = opts("Any time", HG.map((t, i) => [i, t]));
-$("f-region").innerHTML = opts("All NZ", R.map((t, i) => [i, t]));
-$("f-size").innerHTML = opts("Any size", SIZES.map((s, i) => [i, s[0]]));
-$("f-mgr").innerHTML = opts("Any", Object.entries(MGR));
-$("f-nf").innerHTML = opts("Any", Object.entries(NF_FILTER));
-$("f-colour").innerHTML = [["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["ht", "Height"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("");
-function fillDistricts() {
-  $("disbox").hidden = S.region < 0;
-  const used = new Set(blocks.filter(b => b.r === S.region).map(b => b.d));
-  $("f-district").innerHTML = opts("All districts", D.map((t, i) => [i, t]).filter(([i]) => used.has(i)));
-  if (!used.has(S.district)) S.district = -1;
+// ------------------------------------------------------------------ the filter tabs (left panel)
+const DUE_MIN = 50;                   // a block counts for a harvest period when 50 ha+ (or a quarter of a small block) falls in it
+const firmLabel = f => MG_BY[f] ? MG_BY[f].short || MG_BY[f].name : f;
+const fscFirm = f => !!(MG_BY[f] && MG_BY[f].fsc);
+blocks.forEach(b => { b.fsc = [...b.fk].some(fscFirm); });
+const FIRMS = (() => { const n = new Map(); blocks.forEach(b => b.fk.forEach(f => n.set(f, (n.get(f) || 0) + b.ha))); return [...n].sort((a, b) => b[1] - a[1]).map(x => x[0]); })();
+const FACETS = [
+  {id: "kind", title: "Type", opts: () => KIND.map((t, i) => [String(i), t]), test: (b, k) => b.k === +k},
+  {id: "due", title: "Harvest due", note: "A forest counts when 50 ha or more (or a quarter of a small forest) falls in the period. Ages are estimates.",
+    opts: () => HG.map((t, i) => [String(i), t]), test: (b, k) => enough(b.hg[+k], b, DUE_MIN)},
+  {id: "region", title: "Region", opts: () => R.map((t, i) => [String(i), t]).filter(([i]) => blocks.some(b => b.r === +i)).sort((a, b) => a[1].localeCompare(b[1])), test: (b, k) => b.r === +k},
+  {id: "district", title: "District", search: "Find a district…", opts: () => {
+      const rs = S.region.length ? S.region.map(Number) : R.map((_, i) => i), out = [];
+      rs.slice().sort((a, b) => R[a].localeCompare(R[b])).forEach(r => {
+        const ds = [...new Set(blocks.filter(b => b.r === r).map(b => b.d))].sort((a, b) => D[a].localeCompare(D[b]));
+        ds.forEach((d, j) => out.push([String(d), D[d], j ? null : R[r]]));
+      });
+      return out; }, test: (b, k) => b.d === +k},
+  {id: "size", title: "Size", opts: () => SIZES.map((x, i) => [String(i), x[0]]), test: (b, k) => b.ha >= SIZES[k][1] && b.ha < SIZES[k][2]},
+  {id: "fm", title: "Manager", search: "Find a firm…", note: "Firms named on a forest: from the firm's own published list, or found by research. About a third of plantation area is matched.",
+    opts: () => FIRMS.map(f => [f, firmLabel(f)]), test: (b, k) => b.fk.has(k)},
+  {id: "mgr", title: "How the manager is known", opts: () => Object.entries(MGR), test: (b, k) => b.mgr === k},
+  {id: "nf", title: "Carbon land", note: "Post-1989 forest land (MfE LUCAS 2020): land that can earn carbon units in the ETS.",
+    opts: () => Object.entries(NF_FILTER), test: (b, k) => k === "post" ? enough(b.nf[0], b, 50) : enough(b.nf[1], b, 20)},
+  {id: "ht", title: "Height today", note: "Estimated from LINZ lidar grown on to today, middle of the forest.",
+    opts: () => [...HT_TEXT.map((t, i) => [String(i), t]).reverse(), ["none", "No lidar yet"]], test: (b, k) => k === "none" ? b.hts < 0 : b.hts === +k},
+  {id: "fsc", title: "Certification", opts: () => [["fsc", "Manager is FSC certified"], ["no", "No FSC certificate found"]], test: (b, k) => (k === "fsc") === b.fsc},
+];
+const FBY = Object.fromEntries(FACETS.map(f => [f.id, f]));
+let openF = null; const finds = {};
+const SHOW = 300;
+function drawFilters() {
+  const f = openF && FBY[openF];
+  if (!f) {
+    $("filters").innerHTML = FACETS.map(f => { const s = S[f.id], o = s.length ? new Map(f.opts().map(x => [x[0], x[1]])) : null;
+      return `<button type="button" class="ft${s.length ? " set" : ""}" data-open="${f.id}"><span class="ftm"><span class="ftt">${esc(f.title)}${s.length ? ` <em>${s.length}</em>` : ""}</span>
+        <span class="fts">${s.length ? esc(s.map(k => o.get(k) || k).join(", ")) : "Any"}</span></span><span class="chev">›</span></button>`; }).join("")
+      + (FK.some(k => S[k].length) || S.q || S.pin || S.dp.length ? `<button type="button" class="lnk clearall" id="clearall">Clear all filters</button>` : "");
+    return;
+  }
+  const s = S[f.id], q = (finds[f.id] || "").toLowerCase();
+  const base = blocks.filter(b => passes(b, f.id));             // other tabs applied: the count = forests ticking it would give
+  let list = f.opts().map(([k, label, head]) => ({k, label, head, n: base.reduce((c, b) => c + (f.test(b, k) ? 1 : 0), 0)}));
+  if (f.id === "fm") list = list.filter(o => o.n || s.includes(o.k));
+  if (q) list = list.filter(o => s.includes(o.k) || o.label.toLowerCase().includes(q));
+  const more = list.length - SHOW; if (more > 0) list = list.slice(0, SHOW);
+  $("filters").innerHTML = `<div class="fh"><button type="button" class="lnk back" data-back="1">‹ All filters</button>${s.length ? `<button type="button" class="lnk" data-clear="${f.id}">Clear</button>` : ""}</div>
+    <h3 class="fti">${esc(f.title)}${s.length ? ` <em>${s.length}</em>` : ""}</h3>${f.note ? `<p class="fnote">${esc(f.note)}</p>` : ""}
+    ${f.search ? `<input type="search" id="ffind" placeholder="${esc(f.search)}" value="${esc(finds[f.id] || "")}">` : ""}
+    <div class="fopts">${list.map(o => { const on = s.includes(o.k);
+      return `${o.head && !q ? `<p class="fhd">${esc(o.head)}</p>` : ""}<div class="fo${on ? " on" : ""}${o.n || on ? "" : " zero"}" role="checkbox" aria-checked="${on}" tabindex="0" data-k="${esc(o.k)}">
+        <i></i><span class="fl">${esc(o.label)}</span><span class="fn">${fmt(o.n)}</span></div>`; }).join("") || `<p class="fnote">Nothing matches.</p>`}
+    ${more > 0 ? `<p class="fnote">${fmt(more)} more - type in the box to find one.</p>` : ""}</div>`;
 }
-const bind = (id, key, num) => $(id).addEventListener("change", e => { const v = e.target.value;
-  S[key] = num ? (v === "" ? -1 : +v) : v; if (key === "region") { S.district = -1; fillDistricts(); } update(key === "region" || key === "district"); });
-bind("f-kind", "kind"); bind("f-due", "due"); bind("f-size", "size"); bind("f-mgr", "mgr"); bind("f-nf", "nf");
-bind("f-region", "region", true); bind("f-district", "district", true);
-$("f-colour").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { S.colour = b.dataset.v; update(); } });
+function tick(id, k) { S[id] = S[id].includes(k) ? S[id].filter(x => x !== k) : [...S[id], k];
+  if (id === "region") { const ok = new Set(FBY.district.opts().map(o => o[0])); S.district = S.district.filter(d => ok.has(d)); }
+  update(id === "region" || id === "district"); if (id === "fm") fitShown(); }
+$("filters").addEventListener("click", e => {
+  const t = e.target;
+  if (t.closest("[data-open]")) { openF = t.closest("[data-open]").dataset.open; drawFilters(); const ff = $("ffind"); if (ff) ff.focus(); $("side").scrollTop = 0; return; }
+  if (t.closest("[data-back]")) { openF = null; drawFilters(); return; }
+  if (t.closest("[data-clear]")) { S[t.closest("[data-clear]").dataset.clear] = []; update(); return; }
+  if (t.closest("#clearall")) { $("reset").click(); return; }
+  const o = t.closest(".fo"); if (o) tick(openF, o.dataset.k);
+});
+$("filters").addEventListener("keydown", e => { const o = e.target.closest(".fo"); if (o && (e.key === " " || e.key === "Enter")) { e.preventDefault(); tick(openF, o.dataset.k); } });
+$("filters").addEventListener("input", e => { if (e.target.id !== "ffind") return; finds[openF] = e.target.value; const pos = e.target.selectionStart;
+  drawFilters(); const ff = $("ffind"); ff.focus(); ff.setSelectionRange(pos, pos); });
 let qt;
 $("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { S.q = $("q").value.trim(); update(); }, 200); });
-$("reset").addEventListener("click", () => { const tab = S.tab, colour = S.colour; Object.assign(S, BLANK, {tab, colour}); $("q").value = "";
-  fillDistricts(); setPin(null); update(); olFitNZ(map); });
+$("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, np = S.np; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, np}); $("q").value = "";
+  setPin(null); update(); olFitNZ(map); });
 $("aboutbtn").addEventListener("click", () => $("about").classList.add("on"));
 $("aboutclose").addEventListener("click", () => $("about").classList.remove("on"));
 $("about").addEventListener("click", e => { if (e.target.id === "about") $("about").classList.remove("on"); });
 document.addEventListener("keydown", e => { if (e.key === "Escape") $("about").classList.remove("on"); });
-document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => { S.tab = b.dataset.tab; update(); }));
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => { S.grp = b.dataset.tab; update(); }));
 
 // ------------------------------------------------------------------ which blocks pass
-const DUE_MIN = 50;                   // a block counts for a harvest period when 50 ha+ (or a quarter of a small block) falls in it
 const isDrive = () => /^d\d+$/.test(String(S.km)), driveMin = () => +String(S.km).slice(1);
 const near = ll => S.pin && (isDrive() ? !!(drive && drive.rings) && ll.lat >= drive.bb[1] && ll.lat <= drive.bb[3] && ll.lng >= drive.bb[0]
   && ll.lng <= drive.bb[2] && inPoly(drive.rings, ll.lng, ll.lat) : map.distance(L.latLng(S.pin[0], S.pin[1]), ll) <= S.km * 1000);
@@ -232,24 +285,16 @@ function inPoly(rings, x, y) {   // even-odd over every ring, so holes stay out 
   return inside;
 }
 const words = () => S.q.toLowerCase().split(/\s+/).filter(Boolean);
-function passes(b, anyFirm) {
-  if (!anyFirm && S.fm.length && !S.fm.some(f => b.fk.has(f))) return false;
-  if (S.kind !== "" && b.k !== +S.kind) return false;
-  if (S.region >= 0 && b.r !== S.region) return false;
-  if (S.district >= 0 && b.d !== S.district) return false;
-  if (S.size !== "" && !(b.ha >= SIZES[S.size][1] && b.ha < SIZES[S.size][2])) return false;
-  if (S.due !== "" && !enough(b.hg[+S.due], b, DUE_MIN)) return false;
-  if (S.mgr && b.mgr !== S.mgr) return false;
-  if (S.nf === "post" && !enough(b.nf[0], b, 50)) return false;
-  if (S.nf === "recent" && !enough(b.nf[1], b, 20)) return false;
+function passes(b, skip) {            // skip = one filter tab left out (its own counts)
+  for (const f of FACETS) if (f.id !== skip && S[f.id].length && !S[f.id].some(k => f.test(b, k))) return false;
   if (S.pin && !near(b.ll)) return false;
   if (S.dp.length && !inDrive(b)) return false;
   const w = words(); if (w.length && !w.every(x => b.text.includes(x))) return false;
   return true;
 }
-const dueOn = () => S.colour === "due" && S.due !== "";          // one harvest period picked: colour that period, darker = more of the block
-const share = b => b.ha ? Math.min(1, b.hg[+S.due] / b.ha) : 0;
-const colourOf = b => S.colour === "due" ? (dueOn() ? C.hg[+S.due] : b.step >= 0 ? C.soon[b.step] : VIZ.none)
+const dueOn = () => S.colour === "due" && due1() >= 0;          // one harvest period picked: colour that period, darker = more of the block
+const share = b => b.ha ? Math.min(1, b.hg[due1()] / b.ha) : 0;
+const colourOf = b => S.colour === "due" ? (dueOn() ? C.hg[due1()] : b.step >= 0 ? C.soon[b.step] : VIZ.none)
   : S.colour === "mgr" ? C.mgr[b.mgr] : S.colour === "nf" ? (b.nfc ? C.nf[b.nfc] : VIZ.none) : S.colour === "ht" ? (b.hts >= 0 ? C.ht[b.hts] : VIZ.none) : C.kind[b.k];
 
 // ------------------------------------------------------------------ drawing
@@ -259,7 +304,7 @@ function tipOf(b) {
     : S.colour === "nf" ? (b.nfc ? NF[b.nfc] : KIND[b.k])
     : S.colour === "kind" ? KIND[b.k]
     : S.colour === "ht" ? (b.ht ? `Height today ~${b.top} m (lidar ${b.ht[2]})` : "No lidar here yet")
-    : b.k !== 0 ? KIND[b.k] : dueOn() ? `${fmt(b.hg[+S.due])} ha ${HG[+S.due].replace(/^Due /, "due ").replace(/^Felled/, "felled").replace(/^(\d)/, "due $1")}`
+    : b.k !== 0 ? KIND[b.k] : dueOn() ? `${fmt(b.hg[due1()])} ha ${dueWord(due1())}`
     : `${fmt(b.soon)} ha due by 2033`;
   return `<b>${esc(what)}</b><br>${fmt(b.ha)} ha · ${esc(D[b.d] || "")}`;
 }
@@ -333,7 +378,7 @@ function pick(b, fly) {
 }
 map.getContainer().addEventListener("click", e => {
   const a = e.target.closest("[data-managers]"); if (!a) return;
-  e.preventDefault(); S.region = +a.dataset.managers; S.district = -1; S.tab = "managers"; fillDistricts(); update();
+  e.preventDefault(); S.region = [a.dataset.managers]; S.district = []; S.grp = "managers"; update();
 });
 
 // ------------------------------------------------------------------ drop a pin (km ring, as AquilaLens's pin tool)
@@ -440,13 +485,12 @@ let infLoad = null;
 const loadInf = () => infLoad = infLoad || Promise.all([get("ports.json"), get("mills.json").then(d => d.mills).catch(() => [])])
   .then(([p, m]) => { INF.ports = p; INF.mills = m; buildInf(); });
 async function syncInf() {
-  document.querySelectorAll("#f-inf button").forEach(x => x.classList.toggle("on", x.dataset.v === S.inf));
+  $("t-inf").classList.toggle("on", !!S.inf); $("t-inf").setAttribute("aria-checked", String(!!S.inf));
   if (!infOn()) { map.removeLayer(INF.layer); return; }
   await loadInf();
   if (infKey !== S.inf + dpick + S.dp.join("|")) buildInf();
   if (infOn()) { INF.layer.addTo(map); drawLegend(); }
 }
-$("f-inf").addEventListener("click", e => { const x = e.target.closest("button"); if (!x) return; S.inf = x.dataset.v; syncInf(); drawLegend(); writeHash(); });
 
 // ------------------------------------------------------------------ drive time from ports / mills (Mike 2026-11-24)
 // areas built once by drive_areas.py (Valhalla, car, 15-60 min); a forest counts when its centre is inside
@@ -525,14 +569,28 @@ const loadNp = () => npLoad = npLoad || get("newplant.json").then(d => { NP.d = 
     .addTo(NP.layer));
   return d; }).catch(() => null);
 async function syncNp(fly) {
-  document.querySelectorAll("#f-np button").forEach(x => x.classList.toggle("on", x.dataset.v === S.np));
+  $("t-np").classList.toggle("on", !!S.np); $("t-np").setAttribute("aria-checked", String(!!S.np));
   if (!S.np) { map.removeLayer(NP.layer); return; }
   await loadNp();
   if (!S.np || !NP.d) return;
   NP.layer.addTo(map); drawLegend();
   if (fly) map.flyToBounds(L.polygon(NP.d.area.map(r => r[0])).getBounds(), {padding: [20, 20]});
 }
-$("f-np").addEventListener("click", e => { const x = e.target.closest("button"); if (!x) return; S.np = x.dataset.v; syncNp(!!S.np); drawLegend(); writeHash(); });
+
+// ------------------------------------------------------------------ map view box: colour by + extra layers (moved off the side panel 2026-11-25)
+const ViewCtl = L.Control.extend({onAdd() {
+  const d = L.DomUtil.create("div", "pinbox mapctl");
+  d.innerHTML = `<button type="button" class="mtog" aria-expanded="false" aria-label="Colour and layers">View ▾</button><div class="mrow"><span class="ml">Colour by</span><span class="seg" id="f-colour">${[["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["ht", "Height"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("")}</span></div>
+    <div class="mrow"><span class="ml">Show</span><button type="button" class="chk" id="t-inf" role="checkbox" aria-checked="false"><i></i>Ports and mills</button>
+      <button type="button" class="chk" id="t-np" role="checkbox" aria-checked="false"><i></i>New planting (pilot)</button><button type="button" class="info" id="npinfo" aria-expanded="false" aria-label="About new planting">i</button></div>
+    <div class="dth" id="npinfotxt" hidden>A first test in Central Hawke's Bay only: forest seen on the 2025-26 LINZ aerial photos that the land-cover map does not show, read from the photos by AI in 1 ha squares.</div>`;
+  d.querySelector(".mtog").addEventListener("click", e => { const o = d.classList.toggle("open"); e.currentTarget.setAttribute("aria-expanded", o); });   // phones: folded
+  L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
+  return d; }});
+new ViewCtl({position: "topright"}).addTo(map);
+$("f-colour").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { S.colour = b.dataset.v; update(); } });
+$("t-inf").addEventListener("click", () => { S.inf = S.inf ? "" : "1"; syncInf(); drawLegend(); writeHash(); });
+$("t-np").addEventListener("click", () => { S.np = S.np ? "" : "1"; syncNp(!!S.np); drawLegend(); writeHash(); });
 $("npinfo").addEventListener("click", () => { const t = $("npinfotxt"); t.hidden = !t.hidden; $("npinfo").setAttribute("aria-expanded", String(!t.hidden)); });
 
 // ------------------------------------------------------------------ legend
@@ -541,9 +599,9 @@ map.getContainer().appendChild(legend);
 L.DomEvent.disableClickPropagation(legend);
 function drawLegend() {
   const k = (c, t, round) => `<div class="k"><i style="background:${c}${round ? ";border-radius:50%" : ""}"></i>${esc(t)}</div>`;
-  legend.innerHTML = (standsOn() ? `<div class="lh">Harvest due, each patch</div>` + HG.map((n, i) => S.due === "" || S.due === String(i) ? k(C.hg[i], n) : "").join("") + k(VIZ.none, "Mānuka / kānuka")
-    : (dueOn() ? `<div class="lh">${esc(HG[+S.due])}</div>` + [[1, "All of the block"], [.5, "Half"], [.1, "A tenth"]].map(([f, t]) =>
-      `<div class="k"><i style="background:${C.hg[+S.due]};opacity:${.15 + .75 * Math.sqrt(f)}"></i>${t}</div>`).join("")
+  legend.innerHTML = (standsOn() ? `<div class="lh">Harvest due, each patch</div>` + HG.map((n, i) => !S.due.length || S.due.includes(String(i)) ? k(C.hg[i], n) : "").join("") + k(VIZ.none, "Mānuka / kānuka")
+    : (dueOn() ? `<div class="lh">${esc(HG[due1()])}</div>` + [[1, "All of the block"], [.5, "Half"], [.1, "A tenth"]].map(([f, t]) =>
+      `<div class="k"><i style="background:${C.hg[due1()]};opacity:${.15 + .75 * Math.sqrt(f)}"></i>${t}</div>`).join("")
     : S.colour === "due" ? `<div class="lh">Share of block due by 2033</div>` + SOON_TEXT.map((n, i) => k(C.soon[i], n)).reverse().join("") + k(VIZ.none, "Mānuka / kānuka")
     : S.colour === "mgr" ? Object.keys(MGR).map(l => k(C.mgr[l], MGR[l])).join("")
     : S.colour === "nf" ? Object.keys(NF).map(l => k(C.nf[l], NF[l])).join("") + k(VIZ.none, "Mānuka / kānuka")
@@ -562,17 +620,17 @@ function summary() {
   $("sum").innerHTML = `<b>${fmt(shown.length)}</b> forests · <b>${fmt(ha)}</b> ha${S.pin ? ` · ${pinLabel()}` : ""}${S.dp.length ? ` · within ${S.dm} min drive of ${esc(dpLabel())}` : ""}`;
   const due = HG.map((_, i) => shown.reduce((s, b) => s + (b.k === 0 ? b.hg[i] : 0), 0)), top = Math.max(...due, 1);
   $("pipe").innerHTML = due.some(v => v) ? `<div class="ph">Plantation harvest due, ha (click to filter)</div>` + HG.map((n, i) =>
-    `<div class="pr${S.due === String(i) ? " on" : ""}" data-due="${i}"><span class="pl">${n}</span><span class="pb"><span style="width:${due[i] / top * 100}%;background:${C.hg[i]}"></span></span><span class="pn">${fmt(due[i])}</span></div>`).join("") : "";
+    `<div class="pr${S.due.includes(String(i)) ? " on" : ""}" data-due="${i}"><span class="pl">${n}</span><span class="pb"><span style="width:${due[i] / top * 100}%;background:${C.hg[i]}"></span></span><span class="pn">${fmt(due[i])}</span></div>`).join("") : "";
 }
 function listBlocks() {
   let bb = null; try { bb = map.getBounds(); } catch (e) { /* map not sized yet (hidden tab): list them all */ }
-  const size = b => S.due !== "" ? b.hg[+S.due] : b.ha;        // a harvest period picked: most ha in that period first
+  const size = dueHa;                                          // harvest periods picked: most ha in them first
   const v = shown.filter(b => !bb || bb.contains(b.ll)).sort((a, b) => size(b) - size(a));
   if (!v.length) return `<div class="more">No forests here with these filters.</div>`;
-  return `<div class="tip">${fmt(v.length)} on screen, ${S.due !== "" ? "most due first" : "biggest first"}</div>` +
+  return `<div class="tip">${fmt(v.length)} on screen, ${S.due.length ? "most due first" : "biggest first"}</div>` +
     v.slice(0, LIST_MAX).map(b => `<div class="it" data-b="${b.id}"><span class="sw" style="background:${colourOf(b)}"></span>
       <span class="m"><div class="t">${esc(D[b.d] || R[b.r] || "")}</div>
-      <div class="s">${b.k === 0 && S.due !== "" ? `${fmt(b.hg[+S.due])} ha ${esc(HG[+S.due].replace(/^Due /, "due ").replace(/^Felled/, "felled").replace(/^(\d)/, "due $1"))}${b.firms.length ? " · " + esc(b.firms.join(", ")) : ""}`
+      <div class="s">${b.k === 0 && S.due.length ? `${fmt(dueHa(b))} ha ${esc(S.due.length === 1 ? dueWord(due1()) : "due in the picked periods")}${b.firms.length ? " · " + esc(b.firms.join(", ")) : ""}`
         : b.k === 0 ? [b.ha ? `${fmt(b.soon)} ha due by 2033` : "Plantation", b.firms.join(", ")].filter(Boolean).map(esc).join(" · ") : "Mānuka / kānuka"}</div></span>
       <span class="n">${fmt(b.ha)} ha</span></div>`).join("") +
     (v.length > LIST_MAX ? `<div class="more">+ ${fmt(v.length - LIST_MAX)} more: zoom in or filter</div>` : "");
@@ -583,9 +641,9 @@ function fitShown() {                               // after a firm pick: frame 
 // Managers tab: every firm with a forest that passes the filters (manager's list, research or Crown-licence rule),
 // biggest by mapped ha (or ha due in the picked period); firms on a list whose forests are not placed follow, named only
 function listManagers() {
-  const reg = S.region >= 0 ? R[S.region] : null, w = words(), per = S.due !== "" ? +S.due : -1;
-  const size = b => per >= 0 ? b.hg[per] : b.ha, agg = new Map();
-  for (const b of S.fm.length ? blocks.filter(b => passes(b, true)) : shown) {
+  const reg = S.region.length === 1 ? R[+S.region[0]] : null, w = words(), per = S.due.length ? 0 : -1;
+  const size = dueHa, agg = new Map();
+  for (const b of S.fm.length ? blocks.filter(b => passes(b, "fm")) : shown) {
     const fs = new Map();
     b.mg.forEach(m => fs.set(m[0], fs.has(m[0]) ? fs.get(m[0]) + " / " + m[1] : m[1]));   // one block can hold several of a firm's named forests
     if (b.rm.length && !fs.has(rmFirm(b.rm[0]))) fs.set(rmFirm(b.rm[0]), (b.rm[2] ? "" : "\u0000") + (b.rm[1] || ""));   // \0 marks "likely"
@@ -598,7 +656,7 @@ function listManagers() {
   for (const f of S.fm) if (!agg.has(f)) agg.set(f, {name: f, F: MG_BY[f] && MG_BY[f].name === f ? MG_BY[f] : null, ha: 0, n: 0, likely: 0, bs: []});   // picked, none match now: keep it to untick
   const fs = [...agg.values()].filter(a => a.ha > 0 || per < 0 || S.fm.includes(a.name)).sort((x, y) => S.fm.includes(y.name) - S.fm.includes(x.name) || y.ha - x.ha);
   const noBlock = UNPLACED.filter(F => (!reg || F.reg.includes(reg)) && (!w.length || w.every(x => F.text.includes(x))));
-  const what = per >= 0 ? "ha due " + HG[per].replace(/^Due /, "").replace(/^Felled /, "felled ") : "ha";
+  const what = per >= 0 ? (S.due.length === 1 ? "ha " + dueWord(due1()) : "ha due in the picked periods") : "ha";
   return (fs.length ? (S.fm.length ? `<div class="tip picks"><span>Map shows ${S.fm.length === 1 ? "only this firm" : "only these " + S.fm.length + " firms"}. Tick more to add.</span><button class="lnk" type="button" data-unpick="1">Show all</button></div>`
       : `<div class="tip">${fmt(fs.length)} firms with forests that match the filters, ${what} on the map. Tick a box to show only that firm's forests (tick more to add); click a name for its forests.</div>`) +
     fs.map(a => {
@@ -630,25 +688,39 @@ function listLocal(reg, w) {
       g.map(x => `<div class="kid"><span>${x.web ? `<a href="${esc(x.web)}" target="_blank" rel="noopener">${esc(x.n)}</a>` : esc(x.n)}
         <span class="w">${x.town ? " · " + esc(x.town) : ""}${!reg && x.r ? " · " + esc(x.r) : ""}</span></span><span style="white-space:nowrap;flex:none">${x.ph ? `<a href="tel:${esc(x.ph.replace(/\s/g, ""))}">${esc(x.ph)}</a>` : ""}</span></div>`).join("") : ""; }).join("");
 }
+// District / Region view: each place with forests that pass, biggest first; a tick adds it to that filter tab
+function listPlaces(id) {
+  const key = id === "district" ? b => b.d : b => b.r, name = id === "district" ? D : R, agg = new Map();
+  for (const b of S[id].length ? blocks.filter(b => passes(b, id)) : shown) { const k = key(b); if (k == null || k < 0) continue;
+    const a = agg.get(k) || agg.set(k, {k, n: 0, ha: 0, due: 0}).get(k); a.n++; a.ha += b.ha; a.due += b.k === 0 ? b.soon : 0; }
+  const rows = [...agg.values()].sort((x, y) => S[id].includes(String(y.k)) - S[id].includes(String(x.k)) || y.ha - x.ha);
+  if (!rows.length) return `<div class="more">No forests match these filters.</div>`;
+  return `<div class="tip">${fmt(rows.length)} ${id === "district" ? "districts" : "regions"} with forests that match. Tick to filter the map to them (tick more to add).</div>` +
+    rows.map(a => { const on = S[id].includes(String(a.k));
+      return `<div class="it${on ? " on" : ""}" data-place="${id}:${a.k}"><span class="pk"><span class="tick" role="checkbox" aria-checked="${on}">${on ? "✓" : ""}</span></span>
+        <span class="m"><div class="t">${esc(name[a.k] || "")}${id === "district" && R[blocks.find(b => b.d === a.k).r] ? ` <span class="w">${esc(R[blocks.find(b => b.d === a.k).r])}</span>` : ""}</div>
+        <div class="s">${fmt(a.n)} forest${a.n > 1 ? "s" : ""}${a.due ? ` · ${fmt(a.due)} ha due by 2033` : ""}</div></span><span class="n">${fmt(a.ha)} ha</span></div>`; }).join("");
+}
 function drawList() {
-  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.tab));
-  $("list").innerHTML = S.tab === "managers" ? listManagers() : listBlocks();
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.grp));
+  $("list").innerHTML = S.grp === "managers" ? listManagers() : S.grp === "district" || S.grp === "region" ? listPlaces(S.grp) : listBlocks();
 }
 $("list").addEventListener("click", e => {
   if (e.target.closest("a")) return;
   if (e.target.closest("[data-unpick]")) { S.fm = []; update(); return; }
   const it = e.target.closest(".it, .kid[data-b]"); if (!it) return;
+  if (it.dataset.place) { const [id, k] = it.dataset.place.split(":"); tick(id, k); return; }
   if (it.dataset.b) { const b = blocks.find(x => x.id === +it.dataset.b); if (b) pick(b, true); }
   const pk = e.target.closest("[data-pick]");
-  if (pk) { const f = pk.dataset.pick; S.fm = S.fm.includes(f) ? S.fm.filter(x => x !== f) : [...S.fm, f]; update(); fitShown(); return; }   // tick: pick only
+  if (pk) { tick("fm", pk.dataset.pick); return; }   // tick: pick only
   if (it.dataset.f) { const f = it.dataset.f; openFirms.has(f) ? openFirms.delete(f) : openFirms.add(f); drawList(); }               // row: open its forests
 });
-map.on("moveend", () => { if (S.tab !== "managers") drawList(); });
+map.on("moveend", () => { if (S.grp === "blocks") drawList(); });
 let standsZ = null;
 map.on("zoomend", () => { const on = standsOn() + "" + heightsOn() + (map.getZoom() >= LINE_Z); if (on !== standsZ) { standsZ = on; syncStands(); shown.forEach(b => b.layer && b.layer.setStyle(styleOf(b))); drawLegend(); } });
 
 $("pipe").addEventListener("click", e => { const r = e.target.closest("[data-due]"); if (!r) return;
-  S.due = S.due === r.dataset.due ? "" : r.dataset.due; update(); });
+  tick("due", r.dataset.due); });
 
 // ------------------------------------------------------------------ download what is filtered
 $("csv").addEventListener("click", () => {
@@ -665,14 +737,12 @@ $("csv").addEventListener("click", () => {
 
 // ------------------------------------------------------------------ one update for every change
 function syncControls() {
-  $("f-kind").value = S.kind; $("f-due").value = S.due; $("f-size").value = S.size; $("f-mgr").value = S.mgr; $("f-nf").value = S.nf;
-  $("f-region").value = S.region < 0 ? "" : S.region; $("f-district").value = S.district < 0 ? "" : S.district;
-  for (const id of ["f-kind", "f-due", "f-size", "f-mgr", "f-nf", "f-region", "f-district"]) $(id).classList.toggle("set", $(id).value !== "");
+  drawFilters();
   $("f-colour").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === S.colour));
 }
 function update(zoomTo) {
   syncControls(); syncInf(); syncDrive(); syncNp(); draw(); syncMask(); syncStands(); summary(); drawLegend(); drawList(); writeHash();
-  if (zoomTo && shown.length && (S.region >= 0 || S.district >= 0)) {
+  if (zoomTo && shown.length && (S.region.length || S.district.length)) {
     map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
     const go = () => map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});
     whenSized(go);
@@ -685,8 +755,8 @@ function whenSized(go) {                           // a map box not yet sized (h
     else go();
   }
 }
-$("q").value = S.q; fillDistricts();
+$("q").value = S.q;
 if (S.pin) setPin(L.latLng(S.pin[0], S.pin[1]));
-update(S.region >= 0 || S.district >= 0);
+update(S.region.length > 0 || S.district.length > 0);
 if (S.pin && pinRing) whenSized(() => map.fitBounds(pinRing.getBounds(), {animate: false}));   // a drive area fits itself when it arrives
 })().catch(e => { document.getElementById("list").innerHTML = `<div class="more">The map could not load: ${String(e.message || e)}</div>`; console.error(e); });
