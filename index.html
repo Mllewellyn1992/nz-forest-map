@@ -13,6 +13,21 @@
 [hidden]{display:none!important}
 html,body{margin:0;height:100%;background:var(--ol-page);color:var(--ol-text);font:14px/1.4 var(--ol-font)}
 #app{display:grid;grid-template-columns:290px minmax(0,1fr) 360px;grid-template-areas:"side map res";height:100vh;height:100dvh}
+.pcol{position:absolute;top:50%;z-index:1000;transform:translateY(-50%);width:18px;height:56px;border:1px solid var(--ol-line2);background:var(--ol-card);
+  color:var(--ol-text2);font:600 15px/1 var(--ol-font);cursor:pointer;padding:0;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+.pcol:hover{background:var(--ol-chip);color:var(--ol-ink)}
+.pcol.l{left:0;border-left:0;border-radius:0 8px 8px 0}
+.pcol.r{right:0;border-right:0;border-radius:8px 0 0 8px}
+@media (min-width:1181px){
+  #app.noside{grid-template-columns:0 minmax(0,1fr) 360px} #app.nores{grid-template-columns:290px minmax(0,1fr) 0}
+  #app.noside.nores{grid-template-columns:0 minmax(0,1fr) 0}
+  #app.noside #side,#app.nores #res{display:none}
+}
+@media (min-width:761px) and (max-width:1180px){
+  #app.noside{grid-template-columns:0 minmax(0,1fr)} #app.noside #side,#app.noside #res{display:none}
+  .pcol.r{display:none}
+}
+@media (max-width:760px){.pcol{display:none}}
 #side,#res{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:auto;scrollbar-width:none;background:var(--ol-card)}
 #side{grid-area:side;border-right:1px solid var(--ol-line)}
 #res{grid-area:res;border-left:1px solid var(--ol-line)}
@@ -237,6 +252,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=52"></script>
+<script src="forest.js?v=53"></script>
 </body>
 </html>

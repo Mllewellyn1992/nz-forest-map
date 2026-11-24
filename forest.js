@@ -812,6 +812,16 @@ function whenSized(go) {                           // a map box not yet sized (h
     else go();
   }
 }
+// fold the side panels away, like AquilaLens (Mike 2026-11-25); remembered in this browser only
+for (const [c, cls, open, shut] of [["l", "noside", "‹", "›"], ["r", "nores", "›", "‹"]]) {
+  const bt = L.DomUtil.create("button", "pcol " + c, map.getContainer()); bt.type = "button";
+  const set = on => { $("app").classList.toggle(cls, on); bt.textContent = on ? shut : open; bt.title = (on ? "Show" : "Hide") + (c === "l" ? " the filters" : " the list");
+    try { localStorage.setItem("fm-" + cls, on ? "1" : ""); } catch (e) { /* storage off */ } setTimeout(() => map.invalidateSize(false), 0); };
+  let was = false; try { was = localStorage.getItem("fm-" + cls) === "1"; } catch (e) { /* storage off */ }
+  set(was);
+  L.DomEvent.disableClickPropagation(bt);
+  bt.addEventListener("click", () => set(!$("app").classList.contains(cls)));
+}
 $("q").value = S.q;
 if (S.pin) setPin(L.latLng(S.pin[0], S.pin[1]));
 update(S.region.length > 0 || S.district.length > 0);
