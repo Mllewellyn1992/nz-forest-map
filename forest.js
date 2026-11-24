@@ -187,7 +187,7 @@ function readHash() {
 }
 function writeHash() {
   const p = new URLSearchParams();
-  for (const k of ["q", "colour", "grp", "inf", "dfrom", "dt", "dm"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
+  for (const k of ["q", "grp", "inf", "dfrom", "dt", "dm"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
   for (const k of FK) if (S[k].length) p.set(k, S[k].join(k === "fm" ? "|" : ","));
   if (S.pin) { p.set("pin", S.pin.map(v => v.toFixed(4)).join(",")); p.set("km", S.km); }
   history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
@@ -252,6 +252,7 @@ function drawFilters() {
     ${more > 0 ? `<p class="fnote">${fmt(more)} more - type in the box to find one.</p>` : ""}</div>`;
 }
 function tick(id, k) { S[id] = S[id].includes(k) ? S[id].filter(x => x !== k) : [...S[id], k];
+  if (COL_OF[id]) { const j = colOrder.indexOf(id); if (j >= 0) colOrder.splice(j, 1); if (S[id].length) colOrder.push(id); }   // newest tick sets the colours
   if (id === "region") { const ok = new Set(FBY.district.opts().map(o => o[0])); S.district = S.district.filter(d => ok.has(d)); }
   update(id === "region" || id === "district"); if (id === "fm") fitShown();
   if (id === "npl" && k === "np" && S.npl.includes("np")) syncNp(true); }       // first turn-on: fly to the pilot area
@@ -298,13 +299,24 @@ function passes(b, skip) {            // skip = one filter tab left out (its own
 }
 const dueOn = () => S.colour === "due" && due1() >= 0;          // one harvest period picked: colour that period, darker = more of the block
 const share = b => b.ha ? Math.min(1, b.hg[due1()] / b.ha) : 0;
+// colours follow the filter last ticked (Mike 2026-11-25: "Colour by" was confusing): Harvest due -> harvest, Manager -> one colour
+// per ticked firm, Carbon land -> carbon, Height today -> height; nothing (or Type, Region, Size ...) -> harvest
+const COL_OF = {due: "due", fm: "mgr", nf: "nf", ht: "ht"}, colOrder = [];
+const FIRM_PAL = dark ? ["#5d9cf0", "#f0a050", "#4cc3b0", "#e8664c", "#a487f0", "#e8d77a", "#f06fb0", "#8cc46a"]
+  : ["#2f6fde", "#e0832a", "#178f7d", "#b23a26", "#7a4fd6", "#b8a020", "#c2187a", "#4f8a2a"];
+const firmCol = b => { const i = S.fm.findIndex(f => b.fk.has(f)); return i < 0 ? VIZ.none : FIRM_PAL[i % FIRM_PAL.length]; };
+function pickColour() {
+  for (const id of FK) if (S[id].length && COL_OF[id] && !colOrder.includes(id)) colOrder.push(id);   // links: ticked tabs in tab order
+  for (let i = colOrder.length - 1; i >= 0; i--) if (S[colOrder[i]].length) return COL_OF[colOrder[i]];
+  return "due";
+}
 const colourOf = b => S.colour === "due" ? (dueOn() ? C.hg[due1()] : b.step >= 0 ? C.soon[b.step] : VIZ.none)
-  : S.colour === "mgr" ? C.mgr[b.mgr] : S.colour === "nf" ? (b.nfc ? C.nf[b.nfc] : VIZ.none) : S.colour === "ht" ? (b.hts >= 0 ? C.ht[b.hts] : VIZ.none) : C.kind[b.k];
+  : S.colour === "mgr" ? firmCol(b) : S.colour === "nf" ? (b.nfc ? C.nf[b.nfc] : VIZ.none) : S.colour === "ht" ? (b.hts >= 0 ? C.ht[b.hts] : VIZ.none) : C.kind[b.k];
 
 // ------------------------------------------------------------------ drawing
 // hover label: what the colour means for this forest (Mike 2026-11-24: Manager view shows the manager, not the district)
 function tipOf(b) {
-  const what = S.colour === "mgr" ? (b.firms.length ? b.firms.join(", ") : MGR[b.mgr])
+  const what = S.colour === "mgr" ? (S.fm.filter(f => b.fk.has(f)).map(firmLabel).join(", ") || (b.firms.length ? b.firms.join(", ") : MGR[b.mgr]))
     : S.colour === "nf" ? (b.nfc ? NF[b.nfc] : KIND[b.k])
     : S.colour === "kind" ? KIND[b.k]
     : S.colour === "ht" ? (b.ht ? `Height today ~${b.top} m (lidar ${b.ht[2]})` : "No lidar here yet")
@@ -429,7 +441,7 @@ const pinLabel = () => !isDrive() ? `${S.km} km of pin` : drive && drive.rings ?
 const ToolsCtl = L.Control.extend({onAdd() {
   const d = L.DomUtil.create("div", "tools");
   d.innerHTML = `<button type="button" class="ttog" aria-expanded="true"><span>Map tools</span><b>▾</b></button>
-    <div class="tbody"><section id="sec-view"></section><section id="sec-dt"></section><section id="sec-pin"></section></div>`;
+    <div class="tbody"><section id="sec-dt"></section><section id="sec-pin"></section></div>`;
   L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
   const tg = d.querySelector(".ttog"), set = shut => { d.classList.toggle("shut", shut); tg.setAttribute("aria-expanded", String(!shut)); try { localStorage.setItem("fm-tools", shut ? "1" : "0"); } catch (e) { /* off */ } };
   let shut = matchMedia("(max-width:760px)").matches; try { const v = localStorage.getItem("fm-tools"); if (v) shut = v === "1"; } catch (e) { /* off */ }
@@ -605,8 +617,6 @@ async function syncNp(fly) {
 }
 
 // ------------------------------------------------------------------ map view box: colour by + extra layers (moved off the side panel 2026-11-25)
-$("sec-view").innerHTML = `<h4>Colour by</h4><span class="seg" id="f-colour">${[["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["ht", "Height"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("")}</span>`;
-$("f-colour").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { S.colour = b.dataset.v; update(); } });
 
 // ------------------------------------------------------------------ legend
 const legend = L.DomUtil.create("div", "legend");
@@ -618,7 +628,7 @@ function drawLegend() {
     : (dueOn() ? `<div class="lh">${esc(HG[due1()])}</div>` + [[1, "All of the block"], [.5, "Half"], [.1, "A tenth"]].map(([f, t]) =>
       `<div class="k"><i style="background:${C.hg[due1()]};opacity:${.15 + .75 * Math.sqrt(f)}"></i>${t}</div>`).join("")
     : S.colour === "due" ? `<div class="lh">Share of block due by 2033</div>` + SOON_TEXT.map((n, i) => k(C.soon[i], n)).reverse().join("") + k(VIZ.none, "Mānuka / kānuka")
-    : S.colour === "mgr" ? Object.keys(MGR).map(l => k(C.mgr[l], MGR[l])).join("")
+    : S.colour === "mgr" ? `<div class="lh">Manager</div>` + S.fm.map((f, i) => k(FIRM_PAL[i % FIRM_PAL.length], firmLabel(f))).join("")
     : S.colour === "nf" ? Object.keys(NF).map(l => k(C.nf[l], NF[l])).join("") + k(VIZ.none, "Mānuka / kānuka")
     : S.colour === "ht" ? `<div class="lh">${heightsOn() ? "Height today (estimated), each 80 m patch" : "Height today (estimated), middle of block"}</div>` + HT_TEXT.map((n, i) => k(C.ht[i], n)).reverse().join("") + k(VIZ.none, "No lidar yet")
     : KIND.map((n, i) => k(C.kind[i], n)).join("")))
@@ -798,10 +808,10 @@ $("csv").addEventListener("click", () => {
 // ------------------------------------------------------------------ one update for every change
 function syncControls() {
   drawFilters();
-  $("f-colour").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === S.colour));
 }
 function update(zoomTo) {
   S.dp = dpList();                                  // the places drive time applies to (empty when off)
+  S.colour = pickColour();
   S.np = S.npl.includes("np") ? "1" : ""; S.npa = S.npl.includes("npa") ? "1" : "";   // layer tab -> layers
   syncControls(); syncInf(); syncDrive(); syncNp(); draw(); syncMask(); syncStands(); summary(); drawLegend(); drawList(); writeHash();
   if (zoomTo && shown.length && (S.region.length || S.district.length)) {
