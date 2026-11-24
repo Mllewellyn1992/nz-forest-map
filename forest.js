@@ -267,7 +267,8 @@ $("filters").addEventListener("keydown", e => { const o = e.target.closest(".fo"
 $("filters").addEventListener("input", e => { if (e.target.id !== "ffind") return; finds[openF] = e.target.value; const pos = e.target.selectionStart;
   drawFilters(); const ff = $("ffind"); ff.focus(); ff.setSelectionRange(pos, pos); });
 let qt;
-$("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { S.q = $("q").value.trim(); update(); }, 200); });
+$("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { S.q = $("q").value.trim(); update();
+  if (S.q && shown.length) map.fitBounds(L.latLngBounds(shown.map(b => [b.ll.lat, b.ll.lng < 0 ? b.ll.lng + 360 : b.ll.lng])), {padding: [30, 30], maxZoom: 11, animate: false}); }, 600); });   // a search frames what it found
 $("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, npl = S.npl; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, npl}); $("q").value = "";   // drive time is a filter: Clear turns it off
   setPin(null); update(); olFitNZ(map); });
 $("aboutbtn").addEventListener("click", () => $("about").classList.add("on"));
@@ -605,6 +606,7 @@ async function syncNp(fly) {
 
 // ------------------------------------------------------------------ map view box: colour by + extra layers (moved off the side panel 2026-11-25)
 $("sec-view").innerHTML = `<h4>Colour by</h4><span class="seg" id="f-colour">${[["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["ht", "Height"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("")}</span>`;
+$("f-colour").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { S.colour = b.dataset.v; update(); } });
 
 // ------------------------------------------------------------------ legend
 const legend = L.DomUtil.create("div", "legend");
