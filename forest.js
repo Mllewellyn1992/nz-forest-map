@@ -32,7 +32,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 41;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 43;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const tileIndex = d => fetch(d + "/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -167,11 +167,11 @@ function syncMask() {                 // patches follow the list whenever a filt
 
 // ------------------------------------------------------------------ state (kept in the address bar)
 const S = {};
-const BLANK = {q: "", kind: "", due: "", region: -1, district: -1, size: "", mgr: "", nf: "", colour: "due", tab: "blocks", pin: null, km: 25, fm: [], inf: "", dt: "", dm: "60"};
+const BLANK = {q: "", kind: "", due: "", region: -1, district: -1, size: "", mgr: "", nf: "", colour: "due", tab: "blocks", pin: null, km: 25, fm: [], inf: "", dt: "", dm: "60", np: ""};
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   Object.assign(S, BLANK);
-  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "inf", "dt", "dm"]) if (p.has(k)) S[k] = p.get(k);
+  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "inf", "dt", "dm", "np"]) if (p.has(k)) S[k] = p.get(k);
   for (const k of ["region", "district"]) if (p.has(k)) S[k] = +p.get(k);
   if (p.has("km")) S.km = /^d\d+$/.test(p.get("km")) ? p.get("km") : +p.get("km") || 25;   // "d30" = a 30 min drive
   if (!["blocks", "managers"].includes(S.tab)) S.tab = "blocks";
@@ -180,7 +180,7 @@ function readHash() {
 }
 function writeHash() {
   const p = new URLSearchParams();
-  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "region", "district", "inf", "dt", "dm"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
+  for (const k of ["q", "kind", "due", "size", "mgr", "nf", "colour", "tab", "region", "district", "inf", "dt", "dm", "np"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
   if (S.fm.length) p.set("fm", S.fm.join("|"));
   if (S.pin) { p.set("pin", S.pin.map(v => v.toFixed(4)).join(",")); p.set("km", S.km); }
   history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
@@ -479,6 +479,32 @@ function driveTo(b, g, filt) {
 }
 loadDrive(); loadInf();          // both small: the forest card uses them for its drive lines
 
+// ------------------------------------------------------------------ new planting, aerial pilot (Mike 2026-11-25 "add the layer to the map")
+// 1 ha squares marked by Claude on 2025-26 LINZ aerial photos, Central Hawke's Bay only; built by code/newplant_layer.py
+const NP = {d: null, layer: L.layerGroup()};
+map.createPane("np").style.zIndex = 450;                                  // over the forests
+const npRnd = L.canvas({pane: "np", padding: .5});
+const NP_C = {young: dark ? "#ff6fd8" : "#c2187a", older: dark ? "#4fd8e8" : "#0a7f94"};
+const NP_T = {young: "Young planting", older: "Older stand, not mapped"};
+let npLoad = null;
+const loadNp = () => npLoad = npLoad || get("newplant.json").then(d => { NP.d = d;
+  d.area.forEach(r => L.polygon(r, {renderer: npRnd, color: NP_C.young, weight: 1.5, dashArray: "5 5", fill: false, interactive: false}).addTo(NP.layer));
+  for (const k of ["young", "older"]) d[k].forEach(([ha, r]) => L.polygon(r, {renderer: npRnd, color: NP_C[k], weight: 1.5, fillColor: NP_C[k], fillOpacity: .35})
+    .bindTooltip(`${NP_T[k]} ~${fmt(ha)} ha`, {direction: "top"})
+    .bindPopup(`<div class="card"><h3>${NP_T[k]}, about ${fmt(ha)} ha</h3><div class="s">${k === "young" ? "Rows of small trees or fresh planting spots" : "A planted stand"} on the ${esc(d.read.photos)} photos, not on the 2023/24 land-cover map. Read by AI in 1 ha squares; a pilot, not checked on the ground.</div></div>`, {maxWidth: 300})
+    .addTo(NP.layer));
+  return d; }).catch(() => null);
+async function syncNp(fly) {
+  document.querySelectorAll("#f-np button").forEach(x => x.classList.toggle("on", x.dataset.v === S.np));
+  if (!S.np) { map.removeLayer(NP.layer); return; }
+  await loadNp();
+  if (!S.np || !NP.d) return;
+  NP.layer.addTo(map); drawLegend();
+  if (fly) map.flyToBounds(L.polygon(NP.d.area.map(r => r[0])).getBounds(), {padding: [20, 20]});
+}
+$("f-np").addEventListener("click", e => { const x = e.target.closest("button"); if (!x) return; S.np = x.dataset.v; syncNp(!!S.np); drawLegend(); writeHash(); });
+$("npinfo").addEventListener("click", () => { const t = $("npinfotxt"); t.hidden = !t.hidden; $("npinfo").setAttribute("aria-expanded", String(!t.hidden)); });
+
 // ------------------------------------------------------------------ legend
 const legend = L.DomUtil.create("div", "legend");
 map.getContainer().appendChild(legend);
@@ -495,7 +521,8 @@ function drawLegend() {
     : KIND.map((n, i) => k(C.kind[i], n)).join("")))
     + (S.inf || S.dt ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + (infShow("port") ? k(PORT_C, "Export port (size = logs)", 1) : "")
       + (INF.mills && INF.mills.length && (infShow("Sawmill") || infShow("Pulp mill")) ? k(MILL_C, S.inf || S.dt === "mills" ? "Mill" : "Sawmill", 1) : "") : "")
-    + (S.dt ? k(DRIVE_C + "40", `Within ${S.dm} min drive of ${DT_NAME[S.dt]}`) : "");
+    + (S.dt ? k(DRIVE_C + "40", `Within ${S.dm} min drive of ${DT_NAME[S.dt]}`) : "")
+    + (S.np && NP.d ? `<div class="lh" style="margin-top:4px">Aerial photos 2025-26 (pilot)</div>` + k(NP_C.young, NP_T.young) + k(NP_C.older, NP_T.older) : "");
 }
 
 // ------------------------------------------------------------------ side panel
@@ -614,7 +641,7 @@ function syncControls() {
   $("f-colour").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === S.colour));
 }
 function update(zoomTo) {
-  syncControls(); syncInf(); syncDrive(); draw(); syncMask(); syncStands(); summary(); drawLegend(); drawList(); writeHash();
+  syncControls(); syncInf(); syncDrive(); syncNp(); draw(); syncMask(); syncStands(); summary(); drawLegend(); drawList(); writeHash();
   if (zoomTo && shown.length && (S.region >= 0 || S.district >= 0)) {
     map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
     const go = () => map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});
