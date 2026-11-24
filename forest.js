@@ -458,7 +458,7 @@ function millCard(M) {
     ${M.src ? `<div class="links"><a href="${esc(M.src)}" target="_blank" rel="noopener">${/google\.com\/maps/.test(M.src) ? "Google Maps listing" : "Status source"}</a></div>` : ""}</div>`;
 }
 // ports and mills + drive time in one box (Mike 2026-11-25: "very simple" - tick ports / mills to show them, pick one place or all
-// of them, a time, press Drive time). S.inf letters: p ports, s sawmills, o pulp and panel mills; S.dfrom one place key or "" = all ticked
+// of them, a time, press Drive time). S.inf letters: p ports, s sawmills, o pulp and panel mills; S.dfrom = picked place keys joined by "|" ("" = all ticked; Mike: tick or click the ones wanted)
 const PLACE_G = [["p", "Ports"], ["s", "Sawmills"], ["o", "Pulp and panel mills"]];
 const PLACE_C = {p: dark ? "#4a90e2" : "#1f5fa8", s: dark ? "#c07be0" : "#8e3fb0", o: dark ? "#9d7bd8" : "#5b2a86"};
 const PLACE_SVG = {p: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.2"/><path d="M12 7.5V21M7.5 11h9M4.5 14a7.5 7.5 0 0 0 15 0"/></svg>`,
@@ -471,19 +471,23 @@ function places() {                                   // the ticked kinds' place
   return [...(S.inf.includes("p") ? INF.ports.ports.map(P => ({k: placeKey("ports", P.n), n: P.n, g: "p"})) : []),
     ...(INF.mills || []).filter(M => S.inf.includes(millG(M))).map(M => ({k: placeKey("mills", M.n), n: M.n, g: millG(M)}))];
 }
-const dpList = () => { if (!S.dt) return []; const ps = places(); return (S.dfrom && ps.some(p => p.k === S.dfrom) ? ps.filter(p => p.k === S.dfrom) : ps).map(p => p.k); };
+const dsel = () => S.dfrom ? S.dfrom.split("|") : [];
+const pickedPl = () => { const ps = places(), w = new Set(dsel()); return ps.filter(p => w.has(p.k)); };   // picked places still shown
+const dpList = () => { if (!S.dt) return []; const pk = pickedPl(); return (pk.length ? pk : places()).map(p => p.k); };
+const togglePick = k => { const w = dsel(); S.dfrom = (w.includes(k) ? w.filter(x => x !== k) : [...w, k]).join("|"); update(); };
 const infOn = () => !!S.inf;
 let infKey = null;
 const placeIcon = (g, size, on) => L.divIcon({className: "pm", iconSize: [size, size],
   html: `<span class="${on ? "on" : ""}" style="--c:${PLACE_C[g]};width:${size}px;height:${size}px">${PLACE_SVG[g]}</span>`});
 function buildInf() {
-  infKey = S.inf + S.dp.join("|");
+  infKey = S.inf + S.dp.join("|") + S.dfrom;
   INF.layer.clearLayers();
-  const used = new Set(S.dp);
+  const used = new Set(pickedPl().map(p => p.k));
   const mk = (ll, g, k, size, card, tip) => {
     if (!S.inf.includes(g)) return;
-    L.marker(ll, {icon: placeIcon(g, size, used.has(k)), riseOnHover: true}).bindTooltip(tip, {direction: "top", offset: [0, -size / 2]})
-      .on("click", () => L.popup({maxWidth: 320}).setLatLng(ll).setContent(card()).openOn(map)).addTo(INF.layer);
+    L.marker(ll, {icon: placeIcon(g, size, used.has(k)), riseOnHover: true})                // click = pick for drive time; hover = its details
+      .bindTooltip(`${card()}<div class="s" style="margin-top:4px"><i>${used.has(k) ? "Picked - click to drop" : "Click to pick for drive time"}</i></div>`, {direction: "top", offset: [0, -size / 2], className: "ptip"})
+      .on("click", () => togglePick(k)).addTo(INF.layer);
   };
   (INF.mills || []).forEach(M => mk(M.ll, millG(M), placeKey("mills", M.n), 22, () => millCard(M), `<b>${esc(M.n)}</b><br>${esc(M.kind)}`));
   const top = Math.max(...INF.ports.ports.map(P => P.logs || 0));
@@ -496,7 +500,7 @@ const loadInf = () => infLoad = infLoad || Promise.all([get("ports.json"), get("
 async function syncInf() {
   if (!infOn()) { map.removeLayer(INF.layer); return; }
   await loadInf();
-  if (infKey !== S.inf + S.dp.join("|")) buildInf();
+  if (infKey !== S.inf + S.dp.join("|") + S.dfrom) buildInf();
   if (infOn()) { INF.layer.addTo(map); drawLegend(); }
 }
 
@@ -518,14 +522,16 @@ const inArea = (A, ll) => ll.lat >= A.bb[0] && ll.lat <= A.bb[2] && ll.lng >= A.
 const inDrive = b => { if (!DRIVE.d) return true; const r = DRIVE.d.bp[b.id]; if (!r) return false;
   const ks = new Set(S.dp.map(k => DRIVE.idx[k])); return r.some(([k, m]) => ks.has(k) && m <= +S.dm); };
 const dpName = k => k.slice(2);
-const dpLabel = () => { if (S.dfrom && S.dp.length === 1) return dpName(S.dp[0]);
+const dpLabel = () => { if (pickedPl().length === 1 && S.dp.length === 1) return dpName(S.dp[0]);
   const t = PLACE_G.filter(([c]) => S.inf.includes(c)).map(([, t]) => t.toLowerCase()); return t.length > 1 ? t.slice(0, -1).join(", ") + " and " + t[t.length - 1] : t[0] || "nothing"; };
 function syncDtCtl() {
   for (const [c] of PLACE_G) { const x = $("t-" + c), on = S.inf.includes(c); x.classList.toggle("on", on); x.setAttribute("aria-checked", String(on)); }
-  const ps = places(), sel = $("f-from");
-  sel.innerHTML = `<option value="">${ps.length ? "All ticked (" + ps.length + ")" : "Tick ports or mills first"}</option>` + PLACE_G.filter(([c]) => S.inf.includes(c)).map(([c, t]) =>
-    `<optgroup label="${t}">${ps.filter(p => p.g === c).sort((a, b) => a.n.localeCompare(b.n)).map(p => `<option value="${esc(p.k)}">${esc(p.n)}</option>`).join("")}</optgroup>`).join("");
-  sel.value = ps.some(p => p.k === S.dfrom) ? S.dfrom : ""; sel.disabled = !ps.length;
+  const ps = places(), pk = pickedPl(), w = new Set(pk.map(p => p.k)), sel = $("f-from");
+  sel.innerHTML = `<span>${!ps.length ? "Tick ports or mills first" : pk.length === 1 ? esc(pk[0].n) : pk.length ? pk.length + " picked" : "All ticked (" + ps.length + ")"}</span><b>▾</b>`;
+  sel.disabled = !ps.length; if (!ps.length) $("fromlist").hidden = true;
+  const row = (k, n, on) => `<div class="fo${on ? " on" : ""}" role="checkbox" aria-checked="${on}" tabindex="0" data-k="${esc(k)}"><i></i><span class="fl">${esc(n)}</span></div>`;
+  $("fromlist").innerHTML = `<div class="fo${pk.length ? "" : " on"}" role="checkbox" aria-checked="${!pk.length}" tabindex="0" data-k=""><i></i><span class="fl"><b>All ticked</b></span></div>`
+    + PLACE_G.filter(([c]) => S.inf.includes(c)).map(([c, t]) => `<p class="fhd">${t}</p>` + ps.filter(p => p.g === c).sort((a, b) => a.n.localeCompare(b.n)).map(p => row(p.k, p.n, w.has(p.k))).join("")).join("");
   $("f-dm").value = S.dm; $("dtbtn").classList.toggle("on", !!S.dt); $("dtbtn").disabled = !ps.length && !S.dt;
   $("dtbtn").textContent = S.dt ? "Drive time on · turn off" : "Drive time";
 }
@@ -547,10 +553,12 @@ function syncDrive() {
 $("sec-dt").innerHTML = `<h4>Ports and mills <button type="button" class="info" id="dtinfo" aria-expanded="false" aria-label="About drive time">i</button></h4>
     <div id="dtinfotxt" class="dth" hidden>Tick to show them. Drive time keeps the forests within that drive of the ticked places, or of the one picked. By car on OpenStreetMap roads, to the nearest edge of each forest; a loaded log truck is slower.</div>
     <div class="trow">${PLACE_G.map(([c, t]) => `<button type="button" class="tchip" id="t-${c}" role="checkbox" aria-checked="false" style="--c:${PLACE_C[c]}"><span class="pdot" style="background:${PLACE_C[c]}">${PLACE_SVG[c]}</span>${c === "o" ? "Pulp / panel" : t}</button>`).join("")}</div>
-    <div class="trow"><select id="f-from" aria-label="Drive from"></select><select id="f-dm" aria-label="Drive time">${[15, 30, 45, 60].map(k => `<option value="${k}">${k} min</option>`).join("")}</select></div>
+    <div class="trow"><button type="button" id="f-from" class="tsel" aria-haspopup="true" title="Pick the ports and mills to drive from (or click them on the map)"></button><select id="f-dm" aria-label="Drive time">${[15, 30, 45, 60].map(k => `<option value="${k}">${k} min</option>`).join("")}</select></div>
+    <div id="fromlist" class="flist" hidden></div>
     <button id="dtbtn" class="tgo" type="button">Drive time</button>`;
 for (const [c] of PLACE_G) $("t-" + c).addEventListener("click", () => { S.inf = PLACE_G.map(x => x[0]).filter(x => x === c ? !S.inf.includes(x) : S.inf.includes(x)).join(""); update(); });
-$("f-from").addEventListener("change", () => { S.dfrom = $("f-from").value; update(); });
+$("f-from").addEventListener("click", () => { const l = $("fromlist"); l.hidden = !l.hidden; });
+$("fromlist").addEventListener("click", e => { const o = e.target.closest(".fo"); if (!o) return; if (!o.dataset.k) { S.dfrom = ""; update(); } else togglePick(o.dataset.k); });
 $("f-dm").addEventListener("change", () => { S.dm = $("f-dm").value; update(); });
 $("dtbtn").addEventListener("click", () => { S.dt = S.dt ? "" : "1"; update(); });
 $("dtinfo").addEventListener("click", () => { const t = $("dtinfotxt"); t.hidden = !t.hidden; $("dtinfo").setAttribute("aria-expanded", String(!t.hidden)); });
@@ -617,8 +625,8 @@ function drawLegend() {
     : KIND.map((n, i) => k(C.kind[i], n)).join("")))
     + (infOn() ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + PLACE_G.filter(([c]) => S.inf.includes(c)).map(([c, t]) =>
       `<div class="k"><span class="pdot" style="background:${PLACE_C[c]}">${PLACE_SVG[c]}</span>${c === "p" ? "Export port (size = logs)" : t}</div>`).join("") : "")
-    + (S.dp.some(k => k[0] === "p") ? k(AREA_C.p + "55", `Within ${S.dm} min drive of ${S.dfrom && S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a port"}`) : "")
-    + (S.dp.some(k => k[0] === "m") ? k(AREA_C.m + "55", `Within ${S.dm} min drive of ${S.dfrom && S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a mill"}`) : "")
+    + (S.dp.some(k => k[0] === "p") ? k(AREA_C.p + "55", `Within ${S.dm} min drive of ${S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a port"}`) : "")
+    + (S.dp.some(k => k[0] === "m") ? k(AREA_C.m + "55", `Within ${S.dm} min drive of ${S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a mill"}`) : "")
     + (S.np && NP.d ? `<div class="lh" style="margin-top:4px">Aerial photos 2025-26 (pilot)</div>` + k(NP_C.young, NP_T.young) + k(NP_C.older, NP_T.older) + (S.npa ? `<div class="k"><i style="background:transparent;border:1.5px dashed ${NP_C.young}"></i>Area checked on the photos</div>` : "") : "");
 }
 

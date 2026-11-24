@@ -183,6 +183,17 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 .tgo.on{background:var(--viz-tool-tint);color:var(--viz-tool-ink)}
 .tgo:disabled{opacity:.4;cursor:default}
 .tbody .dth{margin:-2px 0 6px;padding:0}
+.tsel{flex:1 1 0;min-width:0;display:flex;justify-content:space-between;align-items:center;gap:6px;padding:4px 8px;font:500 12.5px var(--ol-font);
+  border:1px solid var(--ol-line2);border-radius:6px;background:var(--ol-paper);color:var(--ol-text);cursor:pointer;text-align:left}
+.tsel span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tsel b{font-weight:400;color:var(--ol-muted)}
+.tsel:disabled{opacity:.5;cursor:default}
+.flist{margin-top:6px;max-height:260px;overflow-y:auto;scrollbar-width:none;border:1px solid var(--ol-line);border-radius:6px;padding:2px 4px;background:var(--ol-paper)}
+.flist::-webkit-scrollbar{display:none}
+.flist .fo{padding:4px 4px;font-size:12.5px}
+.flist .fhd{margin:6px 4px 2px}
+.ptip{max-width:300px;white-space:normal}
+.ptip .card h3{font-size:13px}
 @media (max-width:760px){.tools{width:250px}}
 .pdot{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;flex:none;box-shadow:0 0 0 1.5px #fff,0 1px 2px rgba(0,0,0,.3)}
 .pdot svg{width:11px;height:11px}
@@ -267,6 +278,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=54"></script>
+<script src="forest.js?v=55"></script>
 </body>
 </html>
