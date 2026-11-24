@@ -32,7 +32,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 39;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 40;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const tileIndex = d => fetch(d + "/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -302,7 +302,8 @@ function blockCard(b) {
     <div><b>${esc(b.rm[0])}</b>${b.rm[1] ? ` <span class="s">${esc(b.rm[1])}</span>` : ""}${b.rm[3] ? ` <a class="s" href="${esc(b.rm[3])}" target="_blank" rel="noopener">source</a>` : ""}</div>` : "";
   const sig = (a, c) => c >= 1e6 ? `${(a / 1e6).toFixed(1)}-${(c / 1e6).toFixed(1)} million` : c >= 1e4 ? `${fmt(Math.round(a / 1e3) * 1e3)}-${fmt(Math.round(c / 1e3) * 1e3)}` : `${fmt(Math.round(a / 100) * 100)}-${fmt(Math.round(c / 100) * 100)}`;
   const htRow = b.ht ? `<div class="s" style="margin-top:6px">Top height (tallest trees), when flown in ${b.ht[2]} (LINZ lidar)</div>
-    <div>${b.ht[5] != null ? `<b>${b.ht[5]} m</b> in the middle, tallest tenth of the block <b>${b.ht[6]} m</b>` : "No top height read"} <span class="s">· average canopy ${b.ht[0]} m · ${b.ht[3]}% of block flown${b.ht[4] >= 5 ? ` · ${b.ht[4]}% bare or under 2 m` : ""}</span></div>` : "";
+    <div>${b.ht[5] != null ? `<b>${b.ht[5]} m</b> in the middle, tallest tenth of the block <b>${b.ht[6]} m</b>` : "No top height read"} <span class="s">· average canopy ${b.ht[0]} m · ${b.ht[3]}% of block flown${b.ht[4] >= 5 ? ` · ${b.ht[4]}% bare or under 2 m` : ""}</span></div>${b.ht[7] != null ? `
+    <div>Height today, estimated: <b>${b.ht[7]} m</b> <span class="s">· grown on from the ${b.ht[2]} lidar with the NZ pine growth curve${b.ht[8] >= 10 ? ` · ${b.ht[8]}% clear-felled since, counted as regrowing` : ""}</span></div>` : ""}` : "";
   const Y = b.k === 0 && E.v[b.vk] ? E.v[b.vk].filter(Boolean) : [];
   const lo = Y.length ? Math.min(...Y.map(y => y[0])) : 0, hi = Y.length ? Math.max(...Y.map(y => y[0])) : 0;
   const pulp = Y.map(y => Math.round(y[3] / y[0] * 100)).sort((a, c) => a - c);
@@ -596,10 +597,10 @@ $("pipe").addEventListener("click", e => { const r = e.target.closest("[data-due
 $("csv").addEventListener("click", () => {
   const head = ["block_id", "type", "region", "district", "forest_ha", ...HG.map(a => "ha_" + a.toLowerCase().replace(/[^a-z0-9]+/g, "_")), "manager_lists_naming_a_forest_here", "manager_found_by_research", "research_confidence", "research_source", "ha_post_1989_forest_land_mfe", "ha_planted_on_farmland_2018_23",
     "titles", "largest_titles", "forestry_right_titles", "crown_forest_licence_titles", "maori_land_ha", "conservation_ha",
-    "avg_canopy_height_median_m_lidar", "avg_canopy_height_tallest_tenth_m", "lidar_year", "lidar_share_flown_pct", "top_height_median_m", "top_height_tallest_tenth_m", "mpi_yield_region", "lat", "lon", "satellite"];
+    "avg_canopy_height_median_m_lidar", "avg_canopy_height_tallest_tenth_m", "lidar_year", "lidar_share_flown_pct", "top_height_median_m", "top_height_tallest_tenth_m", "height_today_est_m", "felled_since_lidar_pct", "mpi_yield_region", "lat", "lon", "satellite"];
   const q = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v;
   const rows = shown.slice().sort((a, b) => b.ha - a.ha).map(b => [b.id, KIND[b.k], R[b.r] || "", D[b.d] || "", b.ha, ...b.hg, b.mg.map(m => SHORT[m[0]] + ": " + m[1]).join("; "), b.rm.length ? b.rm[0] + (b.rm[1] ? ": " + b.rm[1] : "") : "", b.rm.length ? (b.rm[2] ? "sure" : "likely") : "", b.rm[3] || "", b.nf[0], b.nf[1],
-    b.t, b.tt, b.fr, b.cfl, b.mao, b.con, ...(b.ht ? [...b.ht.slice(0, 4), b.ht[5] ?? "", b.ht[6] ?? ""] : ["", "", "", "", "", ""]), b.vk, b.c[0], b.c[1], `https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3`].map(q).join(","));
+    b.t, b.tt, b.fr, b.cfl, b.mao, b.con, ...(b.ht ? [...b.ht.slice(0, 4), b.ht[5] ?? "", b.ht[6] ?? "", b.ht[7] ?? "", b.ht[8] ?? ""] : ["", "", "", "", "", "", "", ""]), b.vk, b.c[0], b.c[1], `https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3`].map(q).join(","));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + [head.join(","), ...rows].join("\r\n")], {type: "text/csv"}));
   a.download = "nz_forests.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);

@@ -161,6 +161,7 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
     <tr><td>Manager on map</td><td>A firm's named forests placed by LINZ place names. Covers about a third of plantation area, so "Not matched" does not mean no manager.</td></tr>
     <tr><td>Managers</td><td>Each firm's latest public list. The date is on every firm; <span class="tag old">older</span> = before 2025, <span class="tag chg">owner changed</span> = sold since the list.</td></tr>
     <tr><td>Top height</td><td>LINZ lidar, flown 2013-2026 (year on each forest). The height in the year it was flown, not today. Top height is the foresters' measure of the tallest trees: here the average of the tallest point in each 10 x 10 m square, read from the full 1 m lidar, for every 80 m patch (in patchy stands, the top 1% of the canopy less 1.3 m). The card gives the block's middle patch and its tallest tenth, and the average canopy (gaps and edges included, about 3-4 m lower). At age 20 it matches NZ growth plots within about 1.5 m in Hawke's Bay, Gisborne and Northland. Not checked against ground plots. Forests with under 5% flown show none.</td></tr>
+    <tr><td>Height today</td><td>An estimate, not measured: each 80 m patch's top height grown on from its lidar year to today with the published NZ radiata growth curve (van der Colff &amp; Kimberley 2013), using each region's typical site quality learned from patches of known age. Patches clear-felled since the flight (satellite) count as regrowing from replanting. Real stands vary; thinning and storm damage are not seen.</td></tr>
     <tr><td>Wood at harvest</td><td>MPI yield tables (NEFD 2015) for the region, radiata planted after 1989, age 28, pruned and unpruned. A regional average, not measured on the forest. No table for the West Coast.</td></tr>
     <tr><td>Ports</td><td>MPI forestry trade statistics, the last four quarters (Jul 2025 - Jun 2026), by port and product.</td></tr>
     <tr><td>Mills</td><td>Mills with a dated 2025-26 sign they are running (news, company post or job ad), or a Google Maps listing marked open with a review in the last 12 months, checked 24 Nov 2026. Small mills with no recent source are left out, so the list is not complete.</td></tr>
@@ -174,6 +175,6 @@ select.set{border-color:var(--ol-charcoal);background:var(--ol-chip);font-weight
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="base.js?v=2"></script>
-<script src="forest.js?v=39"></script>
+<script src="forest.js?v=40"></script>
 </body>
 </html>
