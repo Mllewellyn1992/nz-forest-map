@@ -629,14 +629,14 @@ function drawLegend() {
 const LIST_MAX = 200;
 function summary() {
   const ha = shown.reduce((s, b) => s + b.ha, 0);
-  $("sum").innerHTML = `<b>${fmt(shown.length)}</b> forests · <b>${fmt(ha)}</b> ha${S.pin ? ` · ${pinLabel()}` : ""}${S.dp.length ? ` · within ${S.dm} min drive of ${esc(dpLabel())}` : ""}`;
+  $("sum").innerHTML = `<b>${fmt(shown.length)}</b> forests · <b>${fmt(ha)}</b> ha`;   // pin / drive shown on the map, not repeated here (Mike 2026-11-25)
 }
 function listBlocks() {
   let bb = null; try { bb = map.getBounds(); } catch (e) { /* map not sized yet (hidden tab): list them all */ }
   const size = dueHa;                                          // harvest periods picked: most ha in them first
   const v = shown.filter(b => !bb || bb.contains(b.ll)).sort((a, b) => size(b) - size(a));
   if (!v.length) return `<div class="more">No forests here with these filters.</div>`;
-  return `<div class="tip">${fmt(v.length)} on screen, ${S.due.length ? "most due first" : "biggest first"}</div>` +
+  return `<div class="tip">${fmt(v.length)} on screen</div>` +
     v.slice(0, LIST_MAX).map(b => `<div class="it" data-b="${b.id}"><span class="sw" style="background:${colourOf(b)}"></span>
       <span class="m"><div class="t">${esc(D[b.d] || R[b.r] || "")}</div>
       <div class="s">${b.k === 0 && S.due.length ? `${fmt(dueHa(b))} ha ${esc(S.due.length === 1 ? dueWord(due1()) : "due in the picked periods")}${b.firms.length ? " · " + esc(b.firms.join(", ")) : ""}`
@@ -666,8 +666,8 @@ function listManagers() {
   const fs = [...agg.values()].filter(a => a.ha > 0 || per < 0 || S.fm.includes(a.name)).sort((x, y) => S.fm.includes(y.name) - S.fm.includes(x.name) || y.ha - x.ha);
   const noBlock = UNPLACED.filter(F => (!reg || F.reg.includes(reg)) && (!w.length || w.every(x => F.text.includes(x))));
   const what = per >= 0 ? (S.due.length === 1 ? "ha " + dueWord(due1()) : "ha due in the picked periods") : "ha";
-  return (fs.length ? (S.fm.length ? `<div class="tip picks"><span>Map shows ${S.fm.length === 1 ? "only this firm" : "only these " + S.fm.length + " firms"}. Tick more to add.</span><button class="lnk" type="button" data-unpick="1">Show all</button></div>`
-      : `<div class="tip">${fmt(fs.length)} firms with forests that match the filters, ${what} on the map. Tick a box to show only that firm's forests (tick more to add); click a name for its forests.</div>`) +
+  return (fs.length ? (S.fm.length ? `<div class="tip picks"><span>${S.fm.length} ticked</span><button class="lnk" type="button" data-unpick="1">Show all</button></div>`
+      : `<div class="tip">${fmt(fs.length)} firms</div>`) +
     fs.map(a => {
       const F = a.F, on = S.fm.includes(a.name), open = openFirms.has(a.name);
       const tags = (F && F.fsc ? `<span class="tag fsc">FSC</span>` : "") + (F && F.chg && /^yes/i.test(F.chg) ? `<span class="tag chg">owner changed</span>`
@@ -685,12 +685,12 @@ function listManagers() {
           (F ? `<div class="kidsrc">${F.fsc ? `FSC certified ${fmt(F.fsc)} ha · <a href="${esc(F.fscu)}" target="_blank" rel="noopener">certificate</a>` : ""}
             ${F.src ? ` · <a href="${esc(F.src)}" target="_blank" rel="noopener">owner source</a>` : ""}</div>` : "") + `</div>` : "");
     }).join("") : `<div class="more">No firms match these filters.</div>`) +
-    (noBlock.length ? `<div class="tip" style="margin-top:10px">Also on managers' lists, forests not placed on the map: ${noBlock.map(F => esc(F.short || F.name)).join(", ")}</div>` : "") +
+    // (firms with no placed forest no longer listed here - Mike 2026-11-25: too many words)
     listLocal(reg, w);
 }
 function listLocal(reg, w) {
   const ls = LOCAL.filter(x => (!reg || x.r === reg) && (!w.length || w.every(y => x.text.includes(y))));
-  if (!reg && !w.length) return `<div class="tip" style="margin-top:10px">Pick a region to also see the ${fmt(LOCAL.length)} local forestry firms Google Maps lists.</div>`;
+  if (!reg && !w.length) return "";
   if (!ls.length) return "";
   return `<div class="tip" style="margin-top:10px"><b>Local forestry firms${reg ? " in " + esc(reg) : ""}</b> · ${ls.length} listed on Google Maps (Nov 2026)</div>` +
     LOCAL_TYPES.map(t => { const g = ls.filter(x => x.t === t); return g.length ? `<div class="kidsrc" style="margin-top:6px"><b>${t}</b> (${g.length})</div>` +
@@ -704,7 +704,7 @@ function listPlaces(id) {
     const a = agg.get(k) || agg.set(k, {k, n: 0, ha: 0, due: 0}).get(k); a.n++; a.ha += b.ha; a.due += b.k === 0 ? b.soon : 0; }
   const rows = [...agg.values()].sort((x, y) => S[id].includes(String(y.k)) - S[id].includes(String(x.k)) || y.ha - x.ha);
   if (!rows.length) return `<div class="more">No forests match these filters.</div>`;
-  return `<div class="tip">${fmt(rows.length)} ${id === "district" ? "districts" : "regions"} with forests that match. Tick to filter the map to them (tick more to add).</div>` +
+  return `<div class="tip">${fmt(rows.length)} ${id === "district" ? "districts" : "regions"}</div>` +
     rows.map(a => { const on = S[id].includes(String(a.k));
       return `<div class="it${on ? " on" : ""}" data-place="${id}:${a.k}"><span class="pk"><span class="tick" role="checkbox" aria-checked="${on}">${on ? "✓" : ""}</span></span>
         <span class="m"><div class="t">${esc(name[a.k] || "")}${id === "district" && R[blocks.find(b => b.d === a.k).r] ? ` <span class="w">${esc(R[blocks.find(b => b.d === a.k).r])}</span>` : ""}</div>
