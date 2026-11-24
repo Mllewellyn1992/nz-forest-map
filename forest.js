@@ -168,14 +168,15 @@ function syncMask() {                 // patches follow the list whenever a filt
 // ------------------------------------------------------------------ state (kept in the address bar)
 // Mike 2026-11-25: filters "like AquilaLens" - a list of filter tabs on the left, each opens to every option with a tick box
 // and a live count; ticks inside a tab widen ("this OR that"), tabs narrow each other. Results grouped on the right.
-const FK = ["kind", "due", "region", "district", "size", "fm", "nf", "ht"];   // "How the manager is known" dropped (Mike 2026-11-25); old mgr= links ignored; Certification dropped too (Mike: Manager already shows FSC)       // the tick filters (lists)
+const FK = ["kind", "due", "region", "district", "size", "fm", "nf", "ht", "npl"];   // npl = map layer tab (aerial pilot), not a forest filter   // "How the manager is known" dropped (Mike 2026-11-25); old mgr= links ignored; Certification dropped too (Mike: Manager already shows FSC)       // the tick filters (lists)
 const S = {};
 const BLANK = {q: "", colour: "due", grp: "blocks", pin: null, km: 25, inf: "", dp: [], dfrom: "", dt: "", dm: "60", np: "", npa: "", ...Object.fromEntries(FK.map(k => [k, []]))};
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])));
-  for (const k of ["q", "colour", "inf", "dfrom", "dt", "dm", "np", "npa", "grp"]) if (p.has(k)) S[k] = p.get(k);
+  for (const k of ["q", "colour", "inf", "dfrom", "dt", "dm", "grp"]) if (p.has(k)) S[k] = p.get(k);
   S.inf = S.inf === "1" || S.inf === "pm" ? "pso" : S.inf === "m" ? "so" : S.inf.replace(/[^pso]/g, "");   // older links: one tick, then ports / mills
+  for (const k of ["np", "npa"]) if (p.get(k) && !S.npl.includes(k)) S.npl.push(k);   // links from before the layer moved to a filter tab
   if (p.has("tab")) S.grp = p.get("tab");                    // links from before 2026-11-25
   if (!["blocks", "district", "region", "managers", "charts"].includes(S.grp)) S.grp = "blocks";
   for (const k of FK) if (p.has(k)) S[k] = p.get(k).split(k === "fm" ? "|" : ",").filter(v => v !== "" && v !== "-1");   // old links held one value
@@ -186,7 +187,7 @@ function readHash() {
 }
 function writeHash() {
   const p = new URLSearchParams();
-  for (const k of ["q", "colour", "grp", "inf", "dfrom", "dt", "dm", "np", "npa"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
+  for (const k of ["q", "colour", "grp", "inf", "dfrom", "dt", "dm"]) if (S[k] !== BLANK[k]) p.set(k, S[k]);
   for (const k of FK) if (S[k].length) p.set(k, S[k].join(k === "fm" ? "|" : ","));
   if (S.pin) { p.set("pin", S.pin.map(v => v.toFixed(4)).join(",")); p.set("km", S.km); }
   history.replaceState(null, "", p.toString() ? "#" + p : location.pathname);
@@ -221,6 +222,8 @@ const FACETS = [
     opts: () => Object.entries(NF_FILTER), test: (b, k) => k === "post" ? enough(b.nf[0], b, 50) : enough(b.nf[1], b, 20)},
   {id: "ht", title: "Height today", note: "Estimated from LINZ lidar grown on to today, middle of the forest.",
     opts: () => [...HT_TEXT.map((t, i) => [String(i), t]).reverse(), ["none", "No lidar yet"]], test: (b, k) => k === "none" ? b.hts < 0 : b.hts === +k},
+  {id: "npl", title: "New planting (pilot)", layer: true, note: "Map layer only. Central Hawke's Bay test: forest on 2025-26 aerial photos not on the land-cover map.",
+    opts: () => [["np", "New planting"], ["npa", "Areas checked"]], test: () => true},
 ];
 const FBY = Object.fromEntries(FACETS.map(f => [f.id, f]));
 let openF = null; const finds = {};
@@ -236,7 +239,7 @@ function drawFilters() {
   }
   const s = S[f.id], q = (finds[f.id] || "").toLowerCase();
   const base = blocks.filter(b => passes(b, f.id));             // other tabs applied: the count = forests ticking it would give
-  let list = f.opts().map(([k, label, head]) => ({k, label, head, n: base.reduce((c, b) => c + (f.test(b, k) ? 1 : 0), 0)}));
+  let list = f.opts().map(([k, label, head]) => ({k, label, head, n: f.layer ? null : base.reduce((c, b) => c + (f.test(b, k) ? 1 : 0), 0)}));
   if (f.id === "fm") list = list.filter(o => o.n || s.includes(o.k));
   if (q) list = list.filter(o => s.includes(o.k) || o.label.toLowerCase().includes(q));
   const more = list.length - SHOW; if (more > 0) list = list.slice(0, SHOW);
@@ -244,13 +247,14 @@ function drawFilters() {
     <h3 class="fti">${esc(f.title)}${s.length ? ` <em>${s.length}</em>` : ""}</h3>${f.note ? `<p class="fnote">${esc(f.note)}</p>` : ""}
     ${f.search ? `<input type="search" id="ffind" placeholder="${esc(f.search)}" value="${esc(finds[f.id] || "")}">` : ""}
     <div class="fopts">${list.map(o => { const on = s.includes(o.k);
-      return `${o.head && !q ? `<p class="fhd">${esc(o.head)}</p>` : ""}<div class="fo${on ? " on" : ""}${o.n || on ? "" : " zero"}" role="checkbox" aria-checked="${on}" tabindex="0" data-k="${esc(o.k)}">
-        <i></i><span class="fl">${esc(o.label)}</span><span class="fn">${fmt(o.n)}</span></div>`; }).join("") || `<p class="fnote">Nothing matches.</p>`}
+      return `${o.head && !q ? `<p class="fhd">${esc(o.head)}</p>` : ""}<div class="fo${on ? " on" : ""}${o.n || on || o.n === null ? "" : " zero"}" role="checkbox" aria-checked="${on}" tabindex="0" data-k="${esc(o.k)}">
+        <i></i><span class="fl">${esc(o.label)}</span><span class="fn">${o.n === null ? "" : fmt(o.n)}</span></div>`; }).join("") || `<p class="fnote">Nothing matches.</p>`}
     ${more > 0 ? `<p class="fnote">${fmt(more)} more - type in the box to find one.</p>` : ""}</div>`;
 }
 function tick(id, k) { S[id] = S[id].includes(k) ? S[id].filter(x => x !== k) : [...S[id], k];
   if (id === "region") { const ok = new Set(FBY.district.opts().map(o => o[0])); S.district = S.district.filter(d => ok.has(d)); }
-  update(id === "region" || id === "district"); if (id === "fm") fitShown(); }
+  update(id === "region" || id === "district"); if (id === "fm") fitShown();
+  if (id === "npl" && k === "np" && S.npl.includes("np")) syncNp(true); }       // first turn-on: fly to the pilot area
 $("filters").addEventListener("click", e => {
   const t = e.target;
   if (t.closest("[data-open]")) { openF = t.closest("[data-open]").dataset.open; drawFilters(); const ff = $("ffind"); if (ff) ff.focus(); $("side").scrollTop = 0; return; }
@@ -264,7 +268,7 @@ $("filters").addEventListener("input", e => { if (e.target.id !== "ffind") retur
   drawFilters(); const ff = $("ffind"); ff.focus(); ff.setSelectionRange(pos, pos); });
 let qt;
 $("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { S.q = $("q").value.trim(); update(); }, 200); });
-$("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, np = S.np, npa = S.npa; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, np, npa}); $("q").value = "";   // drive time is a filter: Clear turns it off
+$("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, npl = S.npl; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, npl}); $("q").value = "";   // drive time is a filter: Clear turns it off
   setPin(null); update(); olFitNZ(map); });
 $("aboutbtn").addEventListener("click", () => $("about").classList.add("on"));
 $("aboutclose").addEventListener("click", () => $("about").classList.remove("on"));
@@ -285,7 +289,7 @@ function inPoly(rings, x, y) {   // even-odd over every ring, so holes stay out 
 }
 const words = () => S.q.toLowerCase().split(/\s+/).filter(Boolean);
 function passes(b, skip) {            // skip = one filter tab left out (its own counts)
-  for (const f of FACETS) if (f.id !== skip && S[f.id].length && !S[f.id].some(k => f.test(b, k))) return false;
+  for (const f of FACETS) if (!f.layer && f.id !== skip && S[f.id].length && !S[f.id].some(k => f.test(b, k))) return false;
   if (S.pin && !near(b.ll)) return false;
   if (S.dp.length && !inDrive(b)) return false;
   const w = words(); if (w.length && !w.every(x => b.text.includes(x))) return false;
@@ -424,7 +428,7 @@ const pinLabel = () => !isDrive() ? `${S.km} km of pin` : drive && drive.rings ?
 const ToolsCtl = L.Control.extend({onAdd() {
   const d = L.DomUtil.create("div", "tools");
   d.innerHTML = `<button type="button" class="ttog" aria-expanded="true"><span>Map tools</span><b>▾</b></button>
-    <div class="tbody"><section id="sec-view"></section><section id="sec-dt"></section><section id="sec-pin"></section><section id="sec-np"></section></div>`;
+    <div class="tbody"><section id="sec-view"></section><section id="sec-dt"></section><section id="sec-pin"></section></div>`;
   L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
   const tg = d.querySelector(".ttog"), set = shut => { d.classList.toggle("shut", shut); tg.setAttribute("aria-expanded", String(!shut)); try { localStorage.setItem("fm-tools", shut ? "1" : "0"); } catch (e) { /* off */ } };
   let shut = matchMedia("(max-width:760px)").matches; try { const v = localStorage.getItem("fm-tools"); if (v) shut = v === "1"; } catch (e) { /* off */ }
@@ -526,6 +530,7 @@ const dpLabel = () => { if (pickedPl().length === 1 && S.dp.length === 1) return
   const t = PLACE_G.filter(([c]) => S.inf.includes(c)).map(([, t]) => t.toLowerCase()); return t.length > 1 ? t.slice(0, -1).join(", ") + " and " + t[t.length - 1] : t[0] || "nothing"; };
 function syncDtCtl() {
   for (const [c] of PLACE_G) { const x = $("t-" + c), on = S.inf.includes(c); x.classList.toggle("on", on); x.setAttribute("aria-checked", String(on)); }
+  { const all = S.inf.length === PLACE_G.length; $("t-all").classList.toggle("on", all); $("t-all").setAttribute("aria-checked", String(all)); }
   const ps = places(), pk = pickedPl(), w = new Set(pk.map(p => p.k)), sel = $("f-from");
   sel.innerHTML = `<span>${!ps.length ? "Tick ports or mills first" : pk.length === 1 ? esc(pk[0].n) : pk.length ? pk.length + " picked" : "All ticked (" + ps.length + ")"}</span><b>▾</b>`;
   sel.disabled = !ps.length; if (!ps.length) $("fromlist").hidden = true;
@@ -552,10 +557,11 @@ function syncDrive() {
 }
 $("sec-dt").innerHTML = `<h4>Ports and mills <button type="button" class="info" id="dtinfo" aria-expanded="false" aria-label="About drive time">i</button></h4>
     <div id="dtinfotxt" class="dth" hidden>Tick to show them. Drive time keeps the forests within that drive of the ticked places, or of the one picked. By car on OpenStreetMap roads, to the nearest edge of each forest; a loaded log truck is slower.</div>
-    <div class="trow">${PLACE_G.map(([c, t]) => `<button type="button" class="tchip" id="t-${c}" role="checkbox" aria-checked="false" style="--c:${PLACE_C[c]}"><span class="pdot" style="background:${PLACE_C[c]}">${PLACE_SVG[c]}</span>${c === "o" ? "Pulp / panel" : t}</button>`).join("")}</div>
+    <div class="trow"><button type="button" class="tchip" id="t-all" role="checkbox" aria-checked="false" style="--c:var(--ol-charcoal)">All</button>${PLACE_G.map(([c, t]) => `<button type="button" class="tchip" id="t-${c}" role="checkbox" aria-checked="false" style="--c:${PLACE_C[c]}"><span class="pdot" style="background:${PLACE_C[c]}">${PLACE_SVG[c]}</span>${c === "o" ? "Pulp" : t}</button>`).join("")}</div>
     <div class="trow"><button type="button" id="f-from" class="tsel" aria-haspopup="true" title="Pick the ports and mills to drive from (or click them on the map)"></button><select id="f-dm" aria-label="Drive time">${[15, 30, 45, 60].map(k => `<option value="${k}">${k} min</option>`).join("")}</select></div>
     <div id="fromlist" class="flist" hidden></div>
     <button id="dtbtn" class="tgo" type="button">Drive time</button>`;
+$("t-all").addEventListener("click", () => { S.inf = S.inf.length === PLACE_G.length ? "" : PLACE_G.map(x => x[0]).join(""); update(); });   // Mike: one tick for every port and mill
 for (const [c] of PLACE_G) $("t-" + c).addEventListener("click", () => { S.inf = PLACE_G.map(x => x[0]).filter(x => x === c ? !S.inf.includes(x) : S.inf.includes(x)).join(""); update(); });
 $("f-from").addEventListener("click", () => { const l = $("fromlist"); l.hidden = !l.hidden; });
 $("fromlist").addEventListener("click", e => { const o = e.target.closest(".fo"); if (!o) return; if (!o.dataset.k) { S.dfrom = ""; update(); } else togglePick(o.dataset.k); });
@@ -589,8 +595,6 @@ const loadNp = () => npLoad = npLoad || get("newplant.json").then(d => { NP.d = 
     .addTo(NP.layer));
   return d; }).catch(() => null);
 async function syncNp(fly) {
-  $("t-np").classList.toggle("on", !!S.np); $("t-np").setAttribute("aria-checked", String(!!S.np));
-  $("t-npa").hidden = !S.np; $("t-npa").classList.toggle("on", !!S.npa); $("t-npa").setAttribute("aria-checked", String(!!S.npa));
   if (!S.np || !S.npa) map.removeLayer(NP.read);
   if (!S.np) { map.removeLayer(NP.layer); return; }
   await loadNp();
@@ -601,13 +605,6 @@ async function syncNp(fly) {
 
 // ------------------------------------------------------------------ map view box: colour by + extra layers (moved off the side panel 2026-11-25)
 $("sec-view").innerHTML = `<h4>Colour by</h4><span class="seg" id="f-colour">${[["due", "Harvest"], ["mgr", "Manager"], ["nf", "Carbon"], ["ht", "Height"], ["kind", "Type"]].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join("")}</span>`;
-$("sec-np").innerHTML = `<h4>Aerial photo pilot <button type="button" class="info" id="npinfo" aria-expanded="false" aria-label="About new planting">i</button></h4>
-    <div class="dth" id="npinfotxt" hidden>A first test in Central Hawke's Bay only: forest seen on the 2025-26 LINZ aerial photos that the land-cover map does not show, read from the photos by AI in 1 ha squares.</div>
-    <div class="trow"><button type="button" class="tchip" id="t-np" role="checkbox" aria-checked="false" style="--c:${NP_C.young}">New planting</button><button type="button" class="tchip" id="t-npa" role="checkbox" aria-checked="false" style="--c:${NP_C.young}" hidden>Areas checked</button></div>`;
-$("f-colour").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { S.colour = b.dataset.v; update(); } });
-$("t-np").addEventListener("click", () => { S.np = S.np ? "" : "1"; syncNp(!!S.np); drawLegend(); writeHash(); });
-$("t-npa").addEventListener("click", () => { S.npa = S.npa ? "" : "1"; syncNp(false); drawLegend(); writeHash(); });
-$("npinfo").addEventListener("click", () => { const t = $("npinfotxt"); t.hidden = !t.hidden; $("npinfo").setAttribute("aria-expanded", String(!t.hidden)); });
 
 // ------------------------------------------------------------------ legend
 const legend = L.DomUtil.create("div", "legend");
@@ -803,6 +800,7 @@ function syncControls() {
 }
 function update(zoomTo) {
   S.dp = dpList();                                  // the places drive time applies to (empty when off)
+  S.np = S.npl.includes("np") ? "1" : ""; S.npa = S.npl.includes("npa") ? "1" : "";   // layer tab -> layers
   syncControls(); syncInf(); syncDrive(); syncNp(); draw(); syncMask(); syncStands(); summary(); drawLegend(); drawList(); writeHash();
   if (zoomTo && shown.length && (S.region.length || S.district.length)) {
     map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
