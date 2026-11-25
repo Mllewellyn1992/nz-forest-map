@@ -648,7 +648,8 @@ function summary() {
 function listBlocks() {
   let bb = null; try { bb = map.getBounds(); } catch (e) { /* map not sized yet (hidden tab): list them all */ }
   const size = dueHa;                                          // harvest periods picked: most ha in them first
-  const v = shown.filter(b => !bb || bb.contains(b.ll)).sort((a, b) => size(b) - size(a));
+  const v = shown.filter(b => { if (!bb) return true; const A = blockBB(b); return bb.intersects([[A[0], A[1]], [A[2], A[3]]]); })   // any part on screen, not just the centre (Mike 2026-11-26: zoomed into a big forest the list said none)
+    .sort((a, b) => size(b) - size(a));
   if (!v.length) return `<div class="more">No forests here with these filters.</div>`;
   return `<div class="tip">${fmt(v.length)} on screen</div>` +
     v.slice(0, LIST_MAX).map(b => `<div class="it" data-b="${b.id}"><span class="sw" style="background:${colourOf(b)}"></span>
