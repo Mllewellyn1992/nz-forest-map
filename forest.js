@@ -352,34 +352,46 @@ function driveRow(b) {
   return `<div class="s" style="margin-top:6px">Drive by car to the nearest edge of the forest</div>
     ${line("Port", r[0], DRIVE.d.pn)}${line("Sawmill", r[1], DRIVE.d.mn)}`;
 }
+// card in three plain groups (Mike 2026-11-26 "i dont understand what is related to the forest and what to the region ... slop"):
+// Facts (measured or on a public record for this forest), Estimates (worked out, may be off), Not confirmed (web research).
+// Region-average wood volumes dropped; methods sit behind "How we know".
 function blockCard(b) {
-  const tot = b.hg.reduce((s, v) => s + v, 0);
-  const ageRows = b.k === 0 && tot ? `<div class="s" style="margin-top:6px">Harvest due</div><div class="bar">${b.hg.map((v, i) => v ? `<span style="width:${v / tot * 100}%;background:${C.hg[i]}"></span>` : "").join("")}</div>
-    <table>${b.hg.map((v, i) => v ? `<tr><td><i style="background:${C.hg[i]}"></i>${HG[i]}</td><td>${fmt(v)} ha</td></tr>` : "").join("")}</table>
-    ${b.src && b.src.length ? `<div class="s">Ages from: satellite fells ${b.src[0]}%, lidar height ${b.src[1]}%, land-cover map ${b.src[2]}%</div>` : ""}` : "";
-  const byFirm = {}; b.mg.forEach(([f, n]) => (byFirm[SHORT[f]] = byFirm[SHORT[f]] || []).push(n));
-  const mgrRow = b.mg.length ? `<div class="s" style="margin-top:6px">Manager's list names here</div>${Object.entries(byFirm).map(([f, ns]) =>
-    `<div><b>${esc(f)}</b> <span class="s">${esc(ns.join(", "))}</span></div>`).join("")}`
-    : b.rm.length ? "" : `<div class="s" style="margin-top:6px">Not matched to a manager's list${b.cfl ? " (has a Crown forest licence)" : ""}</div>`;
-  const resRow = b.rm.length ? `<div class="s" style="margin-top:6px">${/\(owner/.test(b.rm[0]) ? (b.rm[2] ? "Owner (found by research)" : "Likely owner (found by research, not confirmed)") : b.rm[2] ? "Manager (found by research)" : "Likely manager (found by research, not confirmed)"}</div>
-    <div><b>${esc(b.rm[0])}</b>${b.rm[1] ? ` <span class="s">${esc(b.rm[1])}</span>` : ""}${b.rm[3] ? ` <a class="s" href="${esc(b.rm[3])}" target="_blank" rel="noopener">source</a>` : ""}</div>` : "";
-  const sig = (a, c) => c >= 1e6 ? `${(a / 1e6).toFixed(1)}-${(c / 1e6).toFixed(1)} million` : c >= 1e4 ? `${fmt(Math.round(a / 1e3) * 1e3)}-${fmt(Math.round(c / 1e3) * 1e3)}` : `${fmt(Math.round(a / 100) * 100)}-${fmt(Math.round(c / 100) * 100)}`;
-  const htRow = b.ht ? `<div class="s" style="margin-top:6px">Top height (tallest trees), when flown in ${b.ht[2]} (LINZ lidar)</div>
-    <div>${b.ht[5] != null ? `<b>${b.ht[5]} m</b> in the middle, tallest tenth of the block <b>${b.ht[6]} m</b>` : "No top height read"} <span class="s">· average canopy ${b.ht[0]} m · ${b.ht[3]}% of block flown${b.ht[4] >= 5 ? ` · ${b.ht[4]}% bare or under 2 m` : ""}</span></div>${b.ht[7] != null ? `
-    <div>Height today, estimated: <b>${b.ht[7]} m</b> <span class="s">· grown on from the ${b.ht[2]} lidar with the NZ pine growth curve${b.ht[8] >= 10 ? ` · ${b.ht[8]}% clear-felled since, counted as regrowing` : ""}</span></div>` : ""}` : "";
-  const Y = b.k === 0 && E.v[b.vk] ? E.v[b.vk].filter(Boolean) : [];
-  const lo = Y.length ? Math.min(...Y.map(y => y[0])) : 0, hi = Y.length ? Math.max(...Y.map(y => y[0])) : 0;
-  const pulp = Y.map(y => Math.round(y[3] / y[0] * 100)).sort((a, c) => a - c);
-  const volRow = Y.length ? `<div class="s" style="margin-top:6px">Typical wood at harvest, age 28 (MPI yield tables, ${esc(b.vk)})</div>
-    <div><b>${lo === hi ? lo : lo + "-" + hi} m³/ha</b> <span class="s">· pulp logs ${pulp[0] === pulp[pulp.length - 1] ? pulp[0] : pulp[0] + "-" + pulp[pulp.length - 1]}% · ${Y.length > 1 ? "pruned vs unpruned" : "one regime"}</span></div>
-    ${b.soon ? `<div class="s">Due by 2033: ${fmt(b.soon)} ha ≈ ${sig(b.soon * lo, b.soon * hi)} m³. Region average, not measured here.</div>` : `<div class="s">Region average, not measured here.</div>`}` : "";
+  const tr = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`, sec = t => `<div class="sec">${t}</div>`;
+  const facts = [], est = [], unc = [];
+  if (b.ht) {
+    if (b.ht[5] != null) facts.push(tr(`Tree height, lidar ${b.ht[2]}`, `<b>${b.ht[5]} m</b> <span class="s">middle · ${b.ht[6]} m tallest</span>`));
+    if (b.ht[4] >= 5) facts.push(tr(`Bare or under 2 m, ${b.ht[2]}`, `${b.ht[4]}%`));
+  }
+  const FEL = HG.length - 1;                                     // last period = felled 2024-25, seen on satellite
+  if (b.k === 0 && b.hg[FEL]) facts.push(tr("Clear-felled 2024-25 (satellite)", `${fmt(b.hg[FEL])} ha`));
+  if (b.k === 0 && b.nf[0]) facts.push(tr("Post-1989 forest land (MfE)", `${fmt(b.nf[0])} ha`));
   const extra = [b.fr ? `${b.fr} with a forestry right` : "", b.cfl ? `${b.cfl} Crown forest licence` : ""].filter(Boolean).join(", ");
-  const rows = [["Land titles", fmt(b.t) + (extra ? ` <span class="s">(${extra})</span>` : "")],
-    b.mao ? ["Māori land", fmt(b.mao) + " ha"] : null, b.con ? ["Conservation land", fmt(b.con) + " ha"] : null].filter(Boolean);
+  facts.push(tr("Land titles (LINZ)", fmt(b.t) + (extra ? ` <span class="s">(${extra})</span>` : "")));
+  if (b.mao) facts.push(tr("Māori land", fmt(b.mao) + " ha"));
+  if (b.con) facts.push(tr("Conservation land", fmt(b.con) + " ha"));
+  if (DRIVE.d && INF.mills) {
+    const r = DRIVE.d.b[b.id] || [[0, []], [0, []], [0, []]];
+    const dv = ([m, ix], names) => m ? `<b>under ${m} min</b> <span class="s">${esc(ix.map(i => names[i]).slice(0, 1).join(""))}</span>` : "over 60 min";
+    facts.push(tr("Drive to a port", dv(r[0], DRIVE.d.pn)), tr("Drive to a sawmill", dv(r[1], DRIVE.d.mn)));
+  }
+  if (b.k === 0 && b.mg.length) { const byFirm = {}; b.mg.forEach(([f, n]) => (byFirm[SHORT[f]] = byFirm[SHORT[f]] || []).push(n));
+    facts.push(tr("On a manager's own forest list", Object.entries(byFirm).map(([f, ns]) => `<b>${esc(f)}</b> <span class="s">${esc(ns.join(", "))}</span>`).join("<br>"))); }
+  const due = b.hg.map((v, i) => [v, i]).filter(([v, i]) => v && i < FEL), tot = due.reduce((t, [v]) => t + v, 0);
+  if (b.k === 0 && tot) est.push(`<tr><td colspan="2"><div class="bar">${due.map(([v, i]) => `<span style="width:${v / tot * 100}%;background:${C.hg[i]}"></span>`).join("")}</div></td></tr>`,
+    ...due.map(([v, i]) => tr(`<i style="background:${C.hg[i]}"></i>Harvest ${HG[i].replace(/^Due /, "")}`, `${fmt(v)} ha`)));
+  if (b.ht && b.ht[7] != null) est.push(tr("Tree height today", `${b.ht[7]} m`));
+  if (b.k === 0 && b.rm.length) { const own = /\(owner/.test(b.rm[0]);
+    (b.rm[2] ? facts : unc).push(tr(own ? "Owner" : "Manager", `<b>${esc(b.rm[0])}</b>${b.rm[1] ? ` <span class="s">${esc(b.rm[1])}</span>` : ""}${b.rm[3] ? ` <a class="s" href="${esc(b.rm[3])}" target="_blank" rel="noopener">source</a>` : ""}`)); }
+  else if (b.k === 0 && !b.mg.length) unc.push(tr("Manager", `<span class="s">not known</span>`));
+  const how = [b.k === 0 && tot ? `Harvest: planting year from the last satellite clear-fell${b.src && b.src.length ? ` (${b.src[0]}% of this forest)` : ""}, else lidar height or the land-cover map, plus a 28-year rotation, matched to MPI's regional age mix.` : "",
+    b.ht && b.ht[7] != null ? `Height today: the ${b.ht[2]} lidar grown on with the NZ pine growth curve.` : "",
+    "Drive times: by road from the nearest edge of the forest.", b.rm.length && !b.rm[2] ? "Manager: found on the web, not confirmed by the firm." : ""].filter(Boolean);
   return `<div class="card"><h3>${esc(KIND[b.k])} · ${fmt(b.ha)} ha</h3>
     <div class="s">${esc(D[b.d] || "")}${b.r >= 0 ? ", " + esc(R[b.r]) : ""}</div>
-    ${ageRows}${htRow}${volRow}${driveRow(b)}${b.k === 0 ? mgrRow + resRow : ""}${b.k === 0 && b.nf[0] ? `<div class="s" style="margin-top:6px">Post-1989 forest land: <b>${fmt(b.nf[0])} ha</b>${b.nf[1] ? ` (${fmt(b.nf[1])} ha planted 2018-23)` : ""}</div>` : ""}
-    <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</table>
+    ${sec("Facts")}<table>${facts.join("")}</table>
+    ${est.length ? sec("Estimates") + `<table>${est.join("")}</table>` : ""}
+    ${unc.length ? sec("Not confirmed") + `<table>${unc.join("")}</table>` : ""}
+    <details class="how"><summary>How we know</summary>${how.map(t => `<div class="s">${t}</div>`).join("")}</details>
     <div class="links"><a href="https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3" target="_blank" rel="noopener">Satellite view</a>
       ${b.r >= 0 ? `<a href="#" data-managers="${b.r}">Managers in ${esc(R[b.r])}</a>` : ""}</div></div>`;
 }
