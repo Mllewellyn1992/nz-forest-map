@@ -334,7 +334,7 @@ function shapeOf(b) {
   if (!b.layer) {
     b.layer = L.polygon(b.g.map(poly => poly.map(unring)), styleOf(b));
     b.layer.bindTooltip(() => tipOf(b), {sticky: true, direction: "top", opacity: .95});
-    b.layer.on("click", e => { L.DomEvent.stopPropagation(e); if (pinning) { map.fire("click", {latlng: e.latlng}); return; } pick(b, false); });
+    b.layer.on("click", e => { L.DomEvent.stopPropagation(e); if (pinning) { map.fire("click", {latlng: e.latlng}); return; } if (standsOn() && b.k === 0) pickPatch(b, e.latlng).then(ok => ok || pick(b, false)).catch(() => pick(b, false)); else pick(b, false); });
   }
   return b.layer;
 }
@@ -392,6 +392,62 @@ function pick(b, fly) {
   pop.on("remove", () => { if (picked === b) { picked = null; if (b.layer) b.layer.setStyle(styleOf(b)); } });
   pop.openOn(map);
 }
+// click a patch: just that patch (Mike 2026-11-26 "i want to click a patch and see just that patch"). Reads the z12 patch
+// tiles around the click, joins touching pixels of the same harvest period inside this forest, outlines them and sizes them.
+const PN = 7, PX_M = 40075016.686 / (256 * 2 ** STAND_MAX);      // 7 x 7 tiles (~50 km) read around the click
+const patchTile = key => standImg["stands" + key] || (standImg["stands" + key] = new Promise((ok, no) => {
+  const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = `stands/${key}.png?v=${DATA_V}`; }));
+let patchHi = null;
+const plantedOf = k => { const t = HG[k], m = t.match(/(\d{4})\D+(\d{4})/);
+  return /^Felled/.test(t) ? "" : m ? `planted about ${m[1] - 28}-${String(m[2] - 28).slice(2)}` : /by (\d{4})/.test(t) ? `planted ${RegExp.$1 - 28} or before` : /(\d{4}) or later/.test(t) ? `planted ${RegExp.$1 - 28} or later` : ""; };
+async function pickPatch(b, ll) {
+  const Z = STAND_MAX, p = map.project(ll, Z), tx = Math.floor(p.x / 256), ty = Math.floor(p.y / 256), h = PN >> 1, N = PN * 256;
+  const x0 = (tx - h) * 256, y0 = (ty - h) * 256;
+  const cv = document.createElement("canvas"); cv.width = cv.height = N; const g = cv.getContext("2d", {willReadFrequently: true});
+  const jobs = [];
+  for (let i = 0; i < PN; i++) for (let j = 0; j < PN; j++) { const key = `${Z}/${tx - h + i}/${ty - h + j}`;
+    if (STAND_SET.has(key)) jobs.push(patchTile(key).then(im => g.drawImage(im, i * 256, j * 256)).catch(() => {})); }
+  await Promise.all(jobs);
+  const a = g.getImageData(0, 0, N, N).data;
+  g.clearRect(0, 0, N, N); g.beginPath();                          // this forest's outline as a mask on the same pixels
+  blockRings(b).forEach(poly => poly.forEach(r => r.forEach(([la, ln], i) => { const q = map.project([la, ln], Z); i ? g.lineTo(q.x - x0, q.y - y0) : g.moveTo(q.x - x0, q.y - y0); })));
+  g.fillStyle = "#000"; g.fill("evenodd");
+  const m = g.getImageData(0, 0, N, N).data;
+  const cls = new Int8Array(N * N).fill(-2);
+  const clsAt = q => { if (cls[q] === -2) cls[q] = !a[q * 4 + 3] || !m[q * 4 + 3] ? -1
+    : STAND_RGB.findIndex(c => Math.abs(c[0] - a[q * 4]) + Math.abs(c[1] - a[q * 4 + 1]) + Math.abs(c[2] - a[q * 4 + 2]) < 12); return cls[q]; };
+  const s0 = Math.floor(p.y - y0) * N + Math.floor(p.x - x0), k = clsAt(s0);
+  if (k < 0 || (S.due.length && !S.due.includes(String(k)))) return false;   // clicked a gap or a hidden period: whole forest
+  const inP = new Uint8Array(N * N), st = [s0]; inP[s0] = 1;
+  let n = 0, edge = false, minx = N, miny = N, maxx = 0, maxy = 0;
+  while (st.length) { const q = st.pop(), x = q % N, y = (q - x) / N; n++;
+    minx = Math.min(minx, x); maxx = Math.max(maxx, x); miny = Math.min(miny, y); maxy = Math.max(maxy, y);
+    if (x === 0 || y === 0 || x === N - 1 || y === N - 1) { edge = true; continue; }
+    for (const r of [q - 1, q + 1, q - N, q + N]) if (!inP[r] && clsAt(r) === k) { inP[r] = 1; st.push(r); } }
+  const w = maxx - minx + 1, hh = maxy - miny + 1, oc = document.createElement("canvas"); oc.width = w; oc.height = hh;
+  const og = oc.getContext("2d"), od = og.createImageData(w, hh), hi = dark ? [255, 255, 255] : [20, 20, 20];
+  for (let y = miny; y <= maxy; y++) for (let x = minx; x <= maxx; x++) { const q = y * N + x; if (!inP[q]) continue;
+    const rim = x === minx || x === maxx || y === miny || y === maxy || !inP[q - 1] || !inP[q + 1] || !inP[q - N] || !inP[q + N];
+    const o = ((y - miny) * w + (x - minx)) * 4; od.data.set(rim ? [...hi, 255] : [...hi, 60], o); }
+  og.putImageData(od, 0, 0);
+  if (patchHi) map.removeLayer(patchHi);
+  patchHi = L.imageOverlay(oc.toDataURL(), [map.unproject([x0 + minx, y0 + miny], Z), map.unproject([x0 + maxx + 1, y0 + maxy + 1], Z)],
+    {interactive: false, className: "patchhi", zIndex: 500}).addTo(map);
+  const ha = n * (PX_M * Math.cos(ll.lat * Math.PI / 180)) ** 2 / 1e4, pl = plantedOf(k);
+  const pop = L.popup({maxWidth: 300, autoPanPadding: [20, 20]}).setLatLng(ll).setContent(`<div class="card">
+    <h3><span class="sw" style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${C.hg[k]}"></span> This patch · ${edge ? "over " : "about "}${fmt(Math.max(1, ha))} ha</h3>
+    <div class="s"><b>${esc(HG[k])}</b>${pl ? " · " + pl : ""}</div>
+    <div class="s">Part of a ${fmt(b.ha)} ha plantation, ${esc(D[b.d] || "")}${b.firms.length ? " · " + esc(b.firms.join(", ")) : ""}</div>
+    <div class="links"><a href="#" data-whole="${b.id}">Whole forest</a>
+      <a href="https://www.google.com/maps/@${ll.lat},${ll.lng},15z/data=!3m1!1e3" target="_blank" rel="noopener">Satellite view</a></div></div>`);
+  pop.on("remove", () => { if (patchHi) { map.removeLayer(patchHi); patchHi = null; } });
+  pop.openOn(map);
+  return true;
+}
+map.getContainer().addEventListener("click", e => {
+  const a = e.target.closest("[data-whole]"); if (!a) return;
+  e.preventDefault(); const b = blocks.find(x => x.id === +a.dataset.whole); if (b) pick(b, false);
+});
 map.getContainer().addEventListener("click", e => {
   const a = e.target.closest("[data-managers]"); if (!a) return;
   e.preventDefault(); S.region = [a.dataset.managers]; S.district = []; S.grp = "managers"; update();
