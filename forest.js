@@ -38,7 +38,7 @@ $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const tileIndex = d => fetch(d + "/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}));
 const [B, MG, E, ST, HT] = await Promise.all([get("blocks.json"), get("managers.json"), get("extra.json").catch(() => ({h: {}, v: {}, vb: {}})),
   tileIndex("stands"), tileIndex("heights")]);
-const R = B.regions, D = B.districts, blocks = B.blocks, HG = B.harvest;
+const R = B.regions, D = B.districts, blocks = B.blocks.filter(b => b.k === 0), HG = B.harvest;   // mānuka / kānuka taken off (Mike 2026-11-26: photo test ~50% wrong)
 const SHORT = Object.fromEntries(MG.firms.map(F => [F.name, F.short || F.name]));
 blocks.forEach(b => {
   b.rm = b.rm || [];                    // [firm, forest, sure, source]: hand research (+ Crown-licence rule) on blocks no list named
@@ -168,7 +168,7 @@ function syncMask() {                 // patches follow the list whenever a filt
 // ------------------------------------------------------------------ state (kept in the address bar)
 // Mike 2026-11-25: filters "like AquilaLens" - a list of filter tabs on the left, each opens to every option with a tick box
 // and a live count; ticks inside a tab widen ("this OR that"), tabs narrow each other. Results grouped on the right.
-const FK = ["kind", "due", "region", "district", "size", "fm", "nf", "ht", "npl", "fell", "svcl"];   // fell = Hawke's Bay felled-since-2025 layer (Mike 2026-11-26)
+const FK = ["due", "region", "district", "size", "fm", "nf", "ht", "npl", "fell", "svcl"];   // fell = Hawke's Bay felled-since-2025 layer (Mike 2026-11-26)
 //   // svcl = forestry services layer tab (Mike 2026-11-26: a filter at the bottom, off at start)
 //   // npl = map layer tab (aerial pilot), not a forest filter   // "How the manager is known" dropped (Mike 2026-11-25); old mgr= links ignored; Certification dropped too (Mike: Manager already shows FSC)       // the tick filters (lists)
 const S = {};
@@ -206,7 +206,6 @@ const fscFirm = f => !!(MG_BY[f] && MG_BY[f].fsc);
 blocks.forEach(b => { b.fsc = [...b.fk].some(fscFirm); });
 const FIRMS = (() => { const n = new Map(); blocks.forEach(b => b.fk.forEach(f => n.set(f, (n.get(f) || 0) + b.ha))); return [...n].sort((a, b) => b[1] - a[1]).map(x => x[0]); })();
 const FACETS = [
-  {id: "kind", title: "Type", opts: () => KIND.map((t, i) => [String(i), t]), test: (b, k) => b.k === +k},
   {id: "due", title: "Harvest due", note: "A forest counts when 50 ha or more (or a quarter of a small forest) falls in the period. Ages are estimates.",
     opts: () => HG.map((t, i) => [String(i), t]), test: (b, k) => enough(b.hg[+k], b, DUE_MIN)},
   {id: "region", title: "Region", opts: () => R.map((t, i) => [String(i), t]).filter(([i]) => blocks.some(b => b.r === +i)).sort((a, b) => a[1].localeCompare(b[1])), test: (b, k) => b.r === +k},
@@ -785,12 +784,12 @@ map.getContainer().appendChild(legend);
 L.DomEvent.disableClickPropagation(legend);
 function drawLegend() {
   const k = (c, t, round) => `<div class="k"><i style="background:${c}${round ? ";border-radius:50%" : ""}"></i>${esc(t)}</div>`;
-  legend.innerHTML = (standsOn() ? `<div class="lh">Harvest due, each patch</div>` + HG.map((n, i) => !S.due.length || S.due.includes(String(i)) ? k(C.hg[i], n) : "").join("") + k(VIZ.none, "Mānuka / kānuka")
+  legend.innerHTML = (standsOn() ? `<div class="lh">Harvest due, each patch</div>` + HG.map((n, i) => !S.due.length || S.due.includes(String(i)) ? k(C.hg[i], n) : "").join("")
     : (dueOn() ? `<div class="lh">${esc(HG[due1()])}</div>` + [[1, "All of the block"], [.5, "Half"], [.1, "A tenth"]].map(([f, t]) =>
       `<div class="k"><i style="background:${C.hg[due1()]};opacity:${.15 + .75 * Math.sqrt(f)}"></i>${t}</div>`).join("")
-    : S.colour === "due" ? `<div class="lh">Share of block due by 2033</div>` + SOON_TEXT.map((n, i) => k(C.soon[i], n)).reverse().join("") + k(VIZ.none, "Mānuka / kānuka")
+    : S.colour === "due" ? `<div class="lh">Share of block due by 2033</div>` + SOON_TEXT.map((n, i) => k(C.soon[i], n)).reverse().join("")
     : S.colour === "mgr" ? `<div class="lh">Manager</div>` + S.fm.map((f, i) => k(FIRM_PAL[i % FIRM_PAL.length], firmLabel(f))).join("")
-    : S.colour === "nf" ? Object.keys(NF).map(l => k(C.nf[l], NF[l])).join("") + k(VIZ.none, "Mānuka / kānuka")
+    : S.colour === "nf" ? Object.keys(NF).map(l => k(C.nf[l], NF[l])).join("")
     : S.colour === "ht" ? `<div class="lh">${heightsOn() ? "Height today (estimated), each 80 m patch" : "Height today (estimated), middle of block"}</div>` + HT_TEXT.map((n, i) => k(C.ht[i], n)).reverse().join("") + k(VIZ.none, "No lidar yet")
     : KIND.map((n, i) => k(C.kind[i], n)).join("")))
     + (infOn() ? `<div class="lh" style="margin-top:4px">Also on the map</div>` + PLACE_G.filter(([c]) => S.inf.includes(c)).map(([c, t]) =>
@@ -911,8 +910,7 @@ function listCharts() {
     + card("ch-due", 190, "Plantation harvest due, ha", "Click a bar to filter")
     + card("ch-reg", 26 * regs.length + 30, `Forest area by ${pid}, ha`, regs.length > 1 ? "Top " + regs.length + ", click to filter" : "")
     + card("ch-firm", 26 * firms.length + 30, "Biggest managers, ha", firms.length ? "Forests named to the firm, click to filter" : "No managers matched")
-    + card("ch-ht", 170, "Height today, ha", "Estimated from lidar, click to filter")
-    + card("ch-kind", 150, "Type, ha", "");
+    + card("ch-ht", 170, "Height today, ha", "Estimated from lidar, click to filter");
   setTimeout(() => loadCharts().then(() => {
     charts.splice(0).forEach(c => c.destroy());
     if (S.grp !== "charts" || !$("ch-due")) return;
@@ -930,9 +928,6 @@ function listCharts() {
     bar("ch-reg", regs.map(x => cut(pn[x[0]])), regs.map(x => x[1]), regs.map(x => fade(!S[pid].length || S[pid].includes(String(x[0])), C.kind[0])), true, i => tick(pid, String(regs[i][0])));
     if (firms.length) bar("ch-firm", firms.map(x => cut(firmLabel(x[0]))), firms.map(x => x[1]), firms.map(x => fade(!S.fm.length || S.fm.includes(x[0]), DRIVE_C)), true, i => { tick("fm", firms[i][0]); });
     bar("ch-ht", HT_TEXT, ht, C.ht.map((c, i) => fade(!S.ht.length || S.ht.includes(String(i)), c)), false, i => tick("ht", String(i)));
-    charts.push(new Chart($("ch-kind"), {type: "doughnut", data: {labels: KIND, datasets: [{data: kind, backgroundColor: C.kind, borderWidth: 0}]},
-      options: {maintainAspectRatio: false, cutout: "62%", plugins: {legend: {position: "right"}, tooltip: {callbacks: {label: c => " " + c.label + ": " + fmt(c.raw) + " ha"}}},
-        onClick: (e, el) => el.length && tick("kind", String(el[0].index))}}));
   }).catch(() => { const x = $("ch-due"); if (x) x.parentNode.innerHTML = `<div class="more">Charts could not load.</div>`; }), 0);
   return html;
 }
