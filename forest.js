@@ -32,7 +32,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 46;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 47;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const tileIndex = d => fetch(d + "/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -168,7 +168,8 @@ function syncMask() {                 // patches follow the list whenever a filt
 // ------------------------------------------------------------------ state (kept in the address bar)
 // Mike 2026-11-25: filters "like AquilaLens" - a list of filter tabs on the left, each opens to every option with a tick box
 // and a live count; ticks inside a tab widen ("this OR that"), tabs narrow each other. Results grouped on the right.
-const FK = ["kind", "due", "region", "district", "size", "fm", "nf", "ht", "npl"];   // npl = map layer tab (aerial pilot), not a forest filter   // "How the manager is known" dropped (Mike 2026-11-25); old mgr= links ignored; Certification dropped too (Mike: Manager already shows FSC)       // the tick filters (lists)
+const FK = ["kind", "due", "region", "district", "size", "fm", "nf", "ht", "npl", "svcl"];   // svcl = forestry services layer tab (Mike 2026-11-26: a filter at the bottom, off at start)
+//   // npl = map layer tab (aerial pilot), not a forest filter   // "How the manager is known" dropped (Mike 2026-11-25); old mgr= links ignored; Certification dropped too (Mike: Manager already shows FSC)       // the tick filters (lists)
 const S = {};
 const BLANK = {q: "", colour: "due", grp: "blocks", pin: null, km: 25, inf: "", dp: [], dfrom: "", dt: "", dm: "60", np: "", npa: "", ...Object.fromEntries(FK.map(k => [k, []]))};
 function readHash() {
@@ -224,6 +225,8 @@ const FACETS = [
     opts: () => [...HT_TEXT.map((t, i) => [String(i), t]).reverse(), ["none", "No lidar yet"]], test: (b, k) => k === "none" ? b.hts < 0 : b.hts === +k},
   {id: "npl", title: "New planting (pilot)", layer: true, note: "Map layer only. Central Hawke's Bay test: forest on 2025-26 aerial photos not on the land-cover map.",
     opts: () => [["np", "New planting"], ["npa", "Areas checked"]], test: () => true},
+  {id: "svcl", title: "Forestry services", layer: true, note: "Map layer only: firms that do work for forests, sorted by hand from their own descriptions. Paler dots are placed at the town, not the yard.",
+    opts: () => SVC_T.map((t, i) => [String(i), SVC.d ? `${t} (${SVC.d.f.filter(f => f[1] === i).length})` : t]), test: () => true},
 ];
 const FBY = Object.fromEntries(FACETS.map(f => [f.id, f]));
 let openF = null; const finds = {};
@@ -270,7 +273,7 @@ $("filters").addEventListener("input", e => { if (e.target.id !== "ffind") retur
 let qt;
 $("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { S.q = $("q").value.trim(); update();
   if (S.q && shown.length) map.fitBounds(L.latLngBounds(shown.map(b => [b.ll.lat, b.ll.lng < 0 ? b.ll.lng + 360 : b.ll.lng])), {padding: [30, 30], maxZoom: 11, animate: false}); }, 600); });   // a search frames what it found
-$("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, npl = S.npl; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, npl}); $("q").value = "";   // drive time is a filter: Clear turns it off
+$("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, npl = S.npl; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, npl, svcl: S.svcl}); $("q").value = "";   // drive time is a filter: Clear turns it off
   setPin(null); update(); olFitNZ(map); });
 $("aboutbtn").addEventListener("click", () => $("about").classList.add("on"));
 $("aboutclose").addEventListener("click", () => $("about").classList.remove("on"));
@@ -391,6 +394,8 @@ function blockCard(b) {
     ${sec("Facts")}<table>${facts.join("")}</table>
     ${est.length ? sec("Estimates") + `<table>${est.join("")}</table>` : ""}
     ${unc.length ? sec("Not confirmed") + `<table>${unc.join("")}</table>` : ""}
+    ${(nb => nb.length ? sec(`Forestry services within ${SVC_KM} km`) + `<table>${nb.map(([t, v]) => tr(`<i style="background:${SVC_C[t]};border-radius:50%"></i>${SVC_T[t]}`,
+      `<b>${v.length}</b> <span class="s" style="font-weight:400">${esc(v.slice(0, 2).map(([, f]) => f[0]).join(", "))}${v.length > 2 ? "…" : ""}</span>`)).join("")}</table>` : "")(svcNear(b))}
     <details class="how"><summary>How we know</summary>${how.map(t => `<div class="s">${t}</div>`).join("")}</details>
     <div class="links"><a href="https://www.google.com/maps/@${b.c[0]},${b.c[1]},14z/data=!3m1!1e3" target="_blank" rel="noopener">Satellite view</a>
       ${b.r >= 0 ? `<a href="#" data-managers="${b.r}">Managers in ${esc(R[b.r])}</a>` : ""}</div></div>`;
@@ -589,6 +594,40 @@ async function syncInf() {
   if (infOn()) { INF.layer.addTo(map); drawLegend(); }
 }
 
+// ------------------------------------------------------------------ forestry services (Mike 2026-11-26: "who can help with the forest" for
+// managers; firms from AquilaLens sorted by hand into a service, firm's own website only, no AquilaLens links). data/services.json from
+// ForestMap/_scratch/services/build.py: f = [name, type, service, website, [[lat, lon], ...], town only, towns]
+const SVC = {d: null, layer: L.layerGroup()}, svcRnd = L.canvas({padding: .5, tolerance: 3});
+const SVC_T = ["Harvest crews", "Roading and earthworks", "Log cartage", "Mills and log buyers", "Nurseries", "Planting and silviculture",
+  "Spraying and pest control", "Consultants and inventory", "Forest managers", "Machinery and repairs"];
+const SVC_C = dark ? ["#e8664c", "#d9ac3a", "#5d9cf0", "#c07be0", "#8cc46a", "#4cc3b0", "#f06fb0", "#f0a050", "#e8d77a", "#a9b2bd"]
+  : ["#b23a26", "#9a6a10", "#1f5fa8", "#8e3fb0", "#4f8a2a", "#178f7d", "#c2187a", "#e0832a", "#6b5d10", "#5d6670"];
+const SVC_KM = 50;
+const svcLoad = get("services.json").then(d => { SVC.d = d; if (S.svcl.length) syncSvc(); if (openF === "svcl") drawFilters(); }).catch(() => {});
+const kmTo = (a, b) => { const r = Math.PI / 180, x = (b[1] - a[1]) * r * Math.cos((a[0] + b[0]) / 2 * r), y = (b[0] - a[0]) * r; return Math.hypot(x, y) * 6371; };
+function svcCard(f) {
+  return `<div class="card"><h3>${esc(f[0])}</h3><div class="s"><i style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${SVC_C[f[1]]}"></i> ${SVC_T[f[1]]}${f[6] ? " · " + esc(f[6]) : ""}</div>
+    ${f[2] ? `<div style="margin-top:4px">${esc(f[2])}</div>` : ""}${f[5] ? `<div class="s">Pin at the town centre, not the yard</div>` : ""}
+    ${f[3] ? `<div class="links"><a href="${esc(/^https?:/.test(f[3]) ? f[3] : "https://" + f[3])}" target="_blank" rel="noopener">Website</a></div>` : ""}</div>`;
+}
+let svcKey = null;
+function syncSvc() {
+  if (!S.svcl.length || !SVC.d) { map.removeLayer(SVC.layer); svcKey = null; return; }
+  if (svcKey !== S.svcl.join()) {
+    svcKey = S.svcl.join(); SVC.layer.clearLayers();
+    SVC.d.f.filter(f => S.svcl.includes(String(f[1]))).forEach(f => f[4].forEach(ll =>
+      L.circleMarker(ll, {renderer: svcRnd, radius: f[5] ? 4 : 5.5, color: dark ? "#111" : "#fff", weight: 1.2, fillColor: SVC_C[f[1]], fillOpacity: f[5] ? .55 : .95})
+        .bindTooltip(`<b>${esc(f[0])}</b><br>${SVC_T[f[1]]}`, {direction: "top"}).bindPopup(() => svcCard(f), {maxWidth: 280}).addTo(SVC.layer)));
+  }
+  SVC.layer.addTo(map); drawLegend();
+}
+// forest card: firms of each service with a pin within SVC_KM of the forest centre, nearest first
+function svcNear(b) {
+  if (!SVC.d) return [];
+  const by = SVC_T.map(() => []);
+  SVC.d.f.forEach(f => { const k = Math.min(...f[4].map(ll => kmTo(b.c, ll))); if (k <= SVC_KM) by[f[1]].push([k, f]); });
+  return by.map((v, t) => [t, v.sort((a, c) => a[0] - c[0])]).filter(([, v]) => v.length);
+}
 // ------------------------------------------------------------------ drive time from ports / mills (Mike 2026-11-24)
 // areas built once by drive_areas.py (Valhalla, car, 15-60 min); a forest counts when its centre is inside
 const DRIVE = {d: null, layer: L.layerGroup(), set: [], key: "", idx: {}};
@@ -704,6 +743,7 @@ function drawLegend() {
       `<div class="k"><span class="pdot" style="background:${PLACE_C[c]}">${PLACE_SVG[c]}</span>${c === "p" ? "Export port (size = logs)" : t}</div>`).join("") : "")
     + (S.dp.some(k => k[0] === "p") ? k(AREA_C.p + "55", `Within ${S.dm} min drive of ${S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a port"}`) : "")
     + (S.dp.some(k => k[0] === "m") ? k(AREA_C.m + "55", `Within ${S.dm} min drive of ${S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a mill"}`) : "")
+    + (S.svcl.length && SVC.d ? `<div class="lh" style="margin-top:4px">Forestry services (dots)</div>` + SVC_T.map((t, i) => S.svcl.includes(String(i)) ? k(SVC_C[i], t, true) : "").join("") : "")
     + (S.np && NP.d ? `<div class="lh" style="margin-top:4px">Aerial photos 2025-26 (pilot)</div>` + k(NP_C.young, NP_T.young) + k(NP_C.older, NP_T.older) + (S.npa ? `<div class="k"><i style="background:transparent;border:1.5px dashed ${NP_C.young}"></i>Area checked on the photos</div>` : "") : "");
 }
 
@@ -882,7 +922,7 @@ function update(zoomTo) {
   S.dp = dpList();                                  // the places drive time applies to (empty when off)
   S.colour = pickColour();
   S.np = S.npl.includes("np") ? "1" : ""; S.npa = S.npl.includes("npa") ? "1" : "";   // layer tab -> layers
-  syncControls(); syncInf(); syncDrive(); syncNp(); draw(); syncMask(); syncStands(); summary(); drawLegend(); drawList(); writeHash();
+  syncControls(); syncInf(); syncSvc(); syncDrive(); syncNp(); draw(); syncMask(); syncStands(); summary(); drawLegend(); drawList(); writeHash();
   if (zoomTo && shown.length && (S.region.length || S.district.length)) {
     map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
     const go = () => map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});
