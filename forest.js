@@ -168,7 +168,8 @@ function syncMask() {                 // patches follow the list whenever a filt
 // ------------------------------------------------------------------ state (kept in the address bar)
 // Mike 2026-11-25: filters "like AquilaLens" - a list of filter tabs on the left, each opens to every option with a tick box
 // and a live count; ticks inside a tab widen ("this OR that"), tabs narrow each other. Results grouped on the right.
-const FK = ["kind", "due", "region", "district", "size", "fm", "nf", "ht", "npl", "svcl"];   // svcl = forestry services layer tab (Mike 2026-11-26: a filter at the bottom, off at start)
+const FK = ["kind", "due", "region", "district", "size", "fm", "nf", "ht", "npl", "fell", "svcl"];   // fell = Hawke's Bay felled-since-2025 layer (Mike 2026-11-26)
+//   // svcl = forestry services layer tab (Mike 2026-11-26: a filter at the bottom, off at start)
 //   // npl = map layer tab (aerial pilot), not a forest filter   // "How the manager is known" dropped (Mike 2026-11-25); old mgr= links ignored; Certification dropped too (Mike: Manager already shows FSC)       // the tick filters (lists)
 const S = {};
 const BLANK = {q: "", colour: "due", grp: "blocks", pin: null, km: 25, inf: "", dp: [], dfrom: "", dt: "", dm: "60", np: "", npa: "", ...Object.fromEntries(FK.map(k => [k, []]))};
@@ -225,6 +226,8 @@ const FACETS = [
     opts: () => [...HT_TEXT.map((t, i) => [String(i), t]).reverse(), ["none", "No lidar yet"]], test: (b, k) => k === "none" ? b.hts < 0 : b.hts === +k},
   {id: "npl", title: "New planting (pilot)", layer: true, note: "Map layer only. Central Hawke's Bay test: forest on 2025-26 aerial photos not on the land-cover map.",
     opts: () => [["np", "New planting"], ["npa", "Areas checked"]], test: () => true},
+  {id: "fell", title: "Felled since 2025 (Hawke's Bay)", layer: true, note: "Map layer only. Pine cleared between the summer 2024-25 and spring 2026 satellite photos, Hawke's Bay only.",
+    opts: () => [["0", FELL_T[0]], ["1", FELL_T[1]]], test: () => true},
   {id: "svcl", title: "Forestry services", layer: true, note: "Map layer only: firms that do work for forests, sorted by hand from their own descriptions. Paler dots are placed at the town, not the yard.",
     opts: () => SVC_T.map((t, i) => [String(i), SVC.d ? `${t} (${SVC.d.f.filter(f => f[1] === i).length})` : t]), test: () => true},
 ];
@@ -246,6 +249,8 @@ const FINFO = {
     "Lidar height is measured (about ±1 m). The grow-on to today is not tested."],
   npl: ["AI read of 2025-26 LINZ aerial photos in 1 ha squares, central Hawke's Bay only: forest the land-cover map misses.",
     "Pilot: not checked on the ground."],
+  fell: ["Satellite (Sentinel-2, 10 m) greenness drop inside pine, then every patch checked by AI on before and after photos; already bare before 2025, roads only and unclear patches left off. Hawke's Bay only, patches 2 ha+.",
+    "All 164,000 ha of Hawke's Bay pine scanned. Biggest patches re-checked by eye: right. Not checked on the ground."],
   svcl: ["Forestry-related firms from AquilaLens, each sorted by hand from its own description. Pin = its sites; paler dots placed at its town. Mills already on the Ports and mills layer not repeated.",
     "Hand check: 18 of 20 sorted right. Firms with no address (111) left off; not every firm in NZ is listed."],
 };
@@ -282,7 +287,8 @@ function tick(id, k) { S[id] = S[id].includes(k) ? S[id].filter(x => x !== k) : 
   if (COL_OF[id]) { const j = colOrder.indexOf(id); if (j >= 0) colOrder.splice(j, 1); if (S[id].length) colOrder.push(id); }   // newest tick sets the colours
   if (id === "region") { const ok = new Set(FBY.district.opts().map(o => o[0])); S.district = S.district.filter(d => ok.has(d)); }
   update(id === "region" || id === "district"); if (id === "fm") fitShown();
-  if (id === "npl" && k === "np" && S.npl.includes("np")) syncNp(true); }       // first turn-on: fly to the pilot area
+  if (id === "npl" && k === "np" && S.npl.includes("np")) syncNp(true);
+  if (id === "fell" && S.fell.length === 1 && S.fell.includes(k)) syncFell(true); }   // first turn-on: fly to Hawke's Bay       // first turn-on: fly to the pilot area
 $("filters").addEventListener("click", e => {
   const t = e.target;
   if (t.closest("[data-info]")) { const k = t.closest("[data-info]").dataset.info; infoOpen.has(k) ? infoOpen.delete(k) : infoOpen.add(k); drawFilters(); return; }
@@ -298,7 +304,7 @@ $("filters").addEventListener("input", e => { if (e.target.id !== "ffind") retur
 let qt;
 $("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { S.q = $("q").value.trim(); update();
   if (S.q && shown.length) map.fitBounds(L.latLngBounds(shown.map(b => [b.ll.lat, b.ll.lng < 0 ? b.ll.lng + 360 : b.ll.lng])), {padding: [30, 30], maxZoom: 11, animate: false}); }, 600); });   // a search frames what it found
-$("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, npl = S.npl; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, npl, svcl: S.svcl}); $("q").value = "";   // drive time is a filter: Clear turns it off
+$("reset").addEventListener("click", () => { const grp = S.grp, colour = S.colour, inf = S.inf, npl = S.npl, fell = S.fell; Object.assign(S, BLANK, Object.fromEntries(FK.map(k => [k, []])), {grp, colour, inf, npl, fell, svcl: S.svcl}); $("q").value = "";   // drive time is a filter: Clear turns it off
   setPin(null); update(); olFitNZ(map); });
 $("aboutbtn").addEventListener("click", () => $("about").classList.add("on"));
 $("aboutclose").addEventListener("click", () => $("about").classList.remove("on"));
@@ -748,6 +754,29 @@ async function syncNp(fly) {
   if (fly) map.flyToBounds(L.polygon(NP.d.area.map(r => r[0])).getBounds(), {padding: [20, 20]});
 }
 
+// ------------------------------------------------------------------ felled since 2025, Hawke's Bay (Mike 2026-11-26 "Yes, add locally")
+// built by code/felled_hb_layer.py: NDVI drop + AI photo check of each patch
+const FELL = {d: null, layer: L.layerGroup()};
+const fellRnd = L.svg({pane: "np"});                                   // own renderer (sharing the pilot canvas gave NaN redraws)
+const FELL_C = dark ? ["#5aa9ff", "#a8d2ff"] : ["#1546c2", "#5b8fe8"];   // blue: not used by any harvest colour
+const FELL_T = ["Clear-felled", "Partly felled"];
+let fellLoad = null, fellKey = null;
+const loadFell = () => fellLoad = fellLoad || get("felled_hb.json").then(d => FELL.d = d).catch(() => null);
+async function syncFell(fly) {
+  if (!S.fell.length) { map.removeLayer(FELL.layer); return; }
+  await loadFell();
+  if (!S.fell.length || !FELL.d) return;
+  if (fellKey !== S.fell.join()) {
+    fellKey = S.fell.join(); FELL.layer.clearLayers();
+    FELL.d.f.filter(f => S.fell.includes(String(f[2]))).forEach(([ha, mo, k, sh, r]) => L.polygon(r, {renderer: fellRnd, color: FELL_C[k], weight: 1.5, fillColor: FELL_C[k], fillOpacity: .55})
+      .bindTooltip(`${FELL_T[k]} ~${fmt(ha)} ha`, {direction: "top"})
+      .bindPopup(`<div class="card"><h3>${FELL_T[k]}, about ${fmt(k ? ha * sh / 100 : ha)} ha</h3><div class="s">${k ? `About ${sh}% of this ${fmt(ha)} ha patch was cleared` : "Pine standing on the summer 2024-25 photo, cleared"} by the ${esc(FELL.d.asof.split(" to ")[1])} photo${mo ? `; first seen bare about ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][+mo.slice(5) - 1]} ${mo.slice(0, 4)}` : ""}. Found from satellite greenness and checked by AI on the photos; not checked on the ground.</div></div>`, {maxWidth: 300})
+      .addTo(FELL.layer));
+  }
+  FELL.layer.addTo(map); drawLegend();
+  if (fly) map.flyToBounds(L.featureGroup(FELL.layer.getLayers()).getBounds(), {padding: [20, 20]});
+}
+
 // ------------------------------------------------------------------ map view box: colour by + extra layers (moved off the side panel 2026-11-25)
 
 // ------------------------------------------------------------------ legend
@@ -769,6 +798,7 @@ function drawLegend() {
     + (S.dp.some(k => k[0] === "p") ? k(AREA_C.p + "55", `Within ${S.dm} min drive of ${S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a port"}`) : "")
     + (S.dp.some(k => k[0] === "m") ? k(AREA_C.m + "55", `Within ${S.dm} min drive of ${S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a mill"}`) : "")
     + (S.svcl.length && SVC.d ? `<div class="lh" style="margin-top:4px">Forestry services (dots)</div>` + SVC_T.map((t, i) => S.svcl.includes(String(i)) ? k(SVC_C[i], t, true) : "").join("") : "")
+    + (S.fell.length && FELL.d ? `<div class="lh" style="margin-top:4px">Felled since 2025 (Hawke's Bay)</div>` + S.fell.map(i => k(FELL_C[i], FELL_T[i])).join("") : "")
     + (S.np && NP.d ? `<div class="lh" style="margin-top:4px">Aerial photos 2025-26 (pilot)</div>` + k(NP_C.young, NP_T.young) + k(NP_C.older, NP_T.older) + (S.npa ? `<div class="k"><i style="background:transparent;border:1.5px dashed ${NP_C.young}"></i>Area checked on the photos</div>` : "") : "");
 }
 
@@ -947,7 +977,7 @@ function update(zoomTo) {
   S.dp = dpList();                                  // the places drive time applies to (empty when off)
   S.colour = pickColour();
   S.np = S.npl.includes("np") ? "1" : ""; S.npa = S.npl.includes("npa") ? "1" : "";   // layer tab -> layers
-  syncControls(); syncInf(); syncSvc(); syncDrive(); syncNp(); draw(); syncMask(); syncStands(); summary(); drawLegend(); drawList(); writeHash();
+  syncControls(); syncInf(); syncSvc(); syncDrive(); syncNp(); syncFell(); draw(); syncMask(); syncStands(); summary(); drawLegend(); drawList(); writeHash();
   if (zoomTo && shown.length && (S.region.length || S.district.length)) {
     map.invalidateSize(false);                     // the box may only just have been sized (first load in a new tab)
     const go = () => map.fitBounds(L.latLngBounds(shown.map(b => b.ll)), {padding: [30, 30], maxZoom: 12, animate: false});
