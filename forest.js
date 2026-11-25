@@ -228,15 +228,39 @@ const FACETS = [
   {id: "svcl", title: "Forestry services", layer: true, note: "Map layer only: firms that do work for forests, sorted by hand from their own descriptions. Paler dots are placed at the town, not the yard.",
     opts: () => SVC_T.map((t, i) => [String(i), SVC.d ? `${t} (${SVC.d.f.filter(f => f[1] === i).length})` : t]), test: () => true},
 ];
+// how each filter is worked out and how sure it is (Mike 2026-11-26: "an information icon ... how it was calculated and what the
+// accuracy levels are"). Only checks actually run are quoted; "not tested" where none was.
+const FINFO = {
+  kind: ["Land-cover map (LCDB v6, Manaaki Whenua, 2023/24): exotic forest and harvested land = plantation; mānuka / kānuka kept apart. Touching pieces joined; 10 ha+ only.",
+    "Plantation total 1.82 million ha vs MPI's 1.82 million ha (within 0.3%). Mānuka not tested."],
+  due: ["Each 30 m square: planting year from the last satellite clear-fell (53% of area), else lidar tree height (41%), else the land-cover map (5%); harvest = planting + 28 years, matched to MPI's regional age mix. Bits under 3 ha join their forest.",
+    "Fell year near exact (27 of 30 recent fells checked real). Lidar ages right to the 5-year period ~99% for trees 5-15 years old, ~75% older. The 28-year rotation is assumed (real 25-32), so a forest can be one period out."],
+  region: ["The region the forest's middle point falls in (Stats NZ boundaries).", "Exact; a forest across a boundary goes with its middle."],
+  district: ["The district the forest's middle point falls in (Stats NZ boundaries).", "Exact; a forest across a boundary goes with its middle."],
+  size: ["Area of the forest's land-cover outline.", "As exact as the map's outline; the map skips patches under 1 ha."],
+  fm: ["Firms' own published forest lists, placed by forest name on LINZ place names; others found by web research (shown as not confirmed). About a third of plantation area has a manager.",
+    "Not fully tested. Owner changes checked on the web Nov 2026."],
+  nf: ["MfE carbon map (LUCAS 2020): land in forest since 1989, which can earn ETS units. Planted 2018-23 from the land-cover map.",
+    "Government map, not re-checked. Planted 2018-23: 8 of 8 satellite checks right."],
+  ht: ["LINZ lidar top height when flown (year varies by area), grown on to today with the NZ pine growth curve. Middle of the forest.",
+    "Lidar height is measured (about ±1 m). The grow-on to today is not tested."],
+  npl: ["AI read of 2025-26 LINZ aerial photos in 1 ha squares, central Hawke's Bay only: forest the land-cover map misses.",
+    "Pilot: not checked on the ground."],
+  svcl: ["Forestry-related firms from AquilaLens, each sorted by hand from its own description. Pin = its sites; paler dots placed at its town. Mills already on the Ports and mills layer not repeated.",
+    "Hand check: 18 of 20 sorted right. Firms with no address (111) left off; not every firm in NZ is listed."],
+};
 const FBY = Object.fromEntries(FACETS.map(f => [f.id, f]));
+const infoOpen = new Set();
 let openF = null; const finds = {};
 const SHOW = 300;
 function drawFilters() {
   const f = openF && FBY[openF];
   if (!f) {
     $("filters").innerHTML = FACETS.map(f => { const s = S[f.id], o = s.length ? new Map(f.opts().map(x => [x[0], x[1]])) : null;
-      return `<button type="button" class="ft${s.length ? " set" : ""}" data-open="${f.id}"><span class="ftm"><span class="ftt">${esc(f.title)}${s.length ? ` <em>${s.length}</em>` : ""}</span>
-        <span class="fts">${s.length ? esc(s.map(k => o.get(k) || k).join(", ")) : "Any"}</span></span><span class="chev">›</span></button>`; }).join("")
+      const fi = FINFO[f.id], io = infoOpen.has(f.id);
+      return `<div class="frow"><button type="button" class="ft${s.length ? " set" : ""}" data-open="${f.id}"><span class="ftm"><span class="ftt">${esc(f.title)}${s.length ? ` <em>${s.length}</em>` : ""}</span>
+        <span class="fts">${s.length ? esc(s.map(k => o.get(k) || k).join(", ")) : "Any"}</span></span><span class="chev">›</span></button>${fi ? `<button type="button" class="info finfo" data-info="${f.id}" aria-expanded="${io}" aria-label="How ${esc(f.title)} is worked out">i</button>` : ""}</div>
+        ${fi && io ? `<div class="fwhy"><p><b>How:</b> ${esc(fi[0])}</p><p><b>How sure:</b> ${esc(fi[1])}</p></div>` : ""}`; }).join("")
       + (FK.some(k => S[k].length) || S.q || S.pin || S.dt ? `<button type="button" class="lnk clearall" id="clearall">Clear all filters</button>` : "");
     return;
   }
@@ -261,6 +285,7 @@ function tick(id, k) { S[id] = S[id].includes(k) ? S[id].filter(x => x !== k) : 
   if (id === "npl" && k === "np" && S.npl.includes("np")) syncNp(true); }       // first turn-on: fly to the pilot area
 $("filters").addEventListener("click", e => {
   const t = e.target;
+  if (t.closest("[data-info]")) { const k = t.closest("[data-info]").dataset.info; infoOpen.has(k) ? infoOpen.delete(k) : infoOpen.add(k); drawFilters(); return; }
   if (t.closest("[data-open]")) { openF = t.closest("[data-open]").dataset.open; drawFilters(); const ff = $("ffind"); if (ff) ff.focus(); $("side").scrollTop = 0; return; }
   if (t.closest("[data-back]")) { openF = null; drawFilters(); return; }
   if (t.closest("[data-clear]")) { S[t.closest("[data-clear]").dataset.clear] = []; update(); return; }
