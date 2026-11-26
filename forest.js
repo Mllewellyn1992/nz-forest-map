@@ -236,7 +236,7 @@ const FINFO = {
   kind: ["Land-cover map (LCDB v6, Manaaki Whenua, 2023/24): exotic forest and harvested land = plantation; mānuka / kānuka kept apart. Touching pieces joined; 10 ha+ only.",
     "Plantation total 1.82 million ha vs MPI's 1.82 million ha (within 0.3%). Mānuka not tested."],
   due: ["Each 30 m square: planting year from the last satellite clear-fell (53% of area), else lidar tree height (41%), else the land-cover map (5%); harvest = planting + 28 years, matched to MPI's regional age mix. Bits under 3 ha join their forest.",
-    "Fell year near exact (27 of 30 recent fells checked real). Lidar ages right to the 5-year period ~99% for trees 5-15 years old, ~75% older. The 28-year rotation is assumed (real 25-32), so a forest can be one period out."],
+    "Back-test on lidar-dated forests the satellite then saw felled 2020-25: 93% would have shown as due by 2028 (by chance: 49%). Satellite fell years near exact (27 of 30 checked). Later periods not tested; real rotations run 25-32 years, so a forest can be one period out."],
   region: ["The region the forest's middle point falls in (Stats NZ boundaries).", "Exact; a forest across a boundary goes with its middle."],
   district: ["The district the forest's middle point falls in (Stats NZ boundaries).", "Exact; a forest across a boundary goes with its middle."],
   size: ["Area of the forest's land-cover outline.", "As exact as the map's outline; the map skips patches under 1 ha."],
