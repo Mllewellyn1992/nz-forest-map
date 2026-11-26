@@ -241,17 +241,17 @@ const FINFO = {
   district: ["The district the forest's middle point falls in (Stats NZ boundaries).", "Exact; a forest across a boundary goes with its middle."],
   size: ["Area of the forest's land-cover outline.", "As exact as the map's outline; the map skips patches under 1 ha."],
   fm: ["Firms' own published forest lists, placed by forest name on LINZ place names; others found by web research (shown as not confirmed). About a third of plantation area has a manager.",
-    "Not fully tested. Owner changes checked on the web Nov 2026."],
+    "Check of 50 forests (Nov 2026, two separate readers): 36 right, 2 wrong (since fixed), 12 could not be confirmed either way."],
   nf: ["MfE carbon map (LUCAS 2020): land in forest since 1989, which can earn ETS units. Planted 2018-23 from the land-cover map.",
     "Government map, not re-checked. Planted 2018-23: 8 of 8 satellite checks right."],
   ht: ["LINZ lidar top height when flown (year varies by area), grown on to today with the NZ pine growth curve. Middle of the forest.",
-    "Lidar height is measured (about ±1 m). The grow-on to today is not tested."],
+    "Lidar height is measured (about ±1 m). Grow-on tested where lidar was flown twice about 4 years apart: typically 2.3 m out, within 3 m 62% of the time."],
   npl: ["AI read of 2025-26 LINZ aerial photos in 1 ha squares, central Hawke's Bay only: forest the land-cover map misses.",
     "Pilot: not checked on the ground."],
   fell: ["Satellite (Sentinel-2, 10 m) greenness drop inside pine, then every patch checked by AI on before and after photos; already bare before 2025, roads only and unclear patches left off. Hawke's Bay only, patches 2 ha+.",
     "All 164,000 ha of Hawke's Bay pine scanned. Biggest patches re-checked by eye: right. Not checked on the ground."],
   svcl: ["Forestry-related firms from AquilaLens, each sorted by hand from its own description. Pin = its sites; paler dots placed at its town. Mills already on the Ports and mills layer not repeated.",
-    "Hand check: 18 of 20 sorted right. Firms with no address (111) left off; not every firm in NZ is listed."],
+    "Hand check: 18 of 20 sorted right. Against Google Maps around five forestry towns, 57 of 109 local service firms are shown; a wider search to fill the gap is under way."],
 };
 const FBY = Object.fromEntries(FACETS.map(f => [f.id, f]));
 const infoOpen = new Set();
