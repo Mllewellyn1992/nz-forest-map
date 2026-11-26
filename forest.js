@@ -11,11 +11,11 @@ const fmt = n => Math.round(n).toLocaleString("en-NZ");
 const VIZ = window.OL_VIZ, dark = VIZ.dark;
 
 // ------------------------------------------------------------------ colours and names
-const C = dark ? {kind: ["#4cae6c", "#d9ac3a"], hg: ["#e8664c", "#f0a050", "#e8d77a", "#8cc46a", "#3f9a5a", "#a99bd8"],
+const C = dark ? {kind: ["#4cae6c", "#d9ac3a"], hg: ["#e8664c", "#f0a050", "#e8d77a", "#3f9a5a", "#a99bd8"],
   soon: ["#4a4237", "#8a6a3a", "#c97a3a", "#f08a5c"],
   mgr: {named: "#5d9cf0", found: "#4cc3b0", cfl: "#a487f0", none: "#6d7177"}, nf: {recent: "#f0c04a", most: "#4cae6c", part: "#2f6b45", old: "#6d7177"}, sel: "#ffffff",
   ht: ["#5a5340", "#7d7a3e", "#8fae4a", "#4cbf6c", "#a6f0b4"]}
-  : {kind: ["#2d7a46", "#c8901e"], hg: ["#b23a26", "#e0832a", "#dcc24a", "#7fae4a", "#2d6a40", "#7f6fb8"],
+  : {kind: ["#2d7a46", "#c8901e"], hg: ["#b23a26", "#e0832a", "#dcc24a", "#2d6a40", "#7f6fb8"],
   soon: ["#efe3c8", "#e6b46e", "#d0702e", "#9c2f1a"],
   mgr: {named: "#2f6fde", found: "#178f7d", cfl: "#7a4fd6", none: "#a9aeb5"}, nf: {recent: "#d99a0b", most: "#3f9a5a", part: "#a6cf8f", old: "#c4c8cd"}, sel: "#111418",
   ht: ["#efe6c4", "#cfd99a", "#8fbf68", "#3f8f4c", "#164f2c"]};
@@ -40,6 +40,10 @@ const [B, MG, E, ST, HT] = await Promise.all([get("blocks.json"), get("managers.
   tileIndex("stands"), tileIndex("heights")]);
 const R = B.regions, D = B.districts, blocks = B.blocks.filter(b => b.k === 0), HG = B.harvest;   // mānuka / kānuka taken off (Mike 2026-11-26: photo test ~50% wrong)
 const SHORT = Object.fromEntries(MG.firms.map(F => [F.name, F.short || F.name]));
+// 2039-43 and 2044+ shown as one "2039 or later" band (Mike 2026-11-26: tests put them right or one period out only 44% / 18%)
+const HG_OF = [0, 1, 2, 3, 3, 4];                              // data / tile period -> shown period
+HG.splice(3, 2, "2039 or later");
+blocks.forEach(b => { b.hg = b.hg.reduce((t, v, i) => (t[HG_OF[i]] += v, t), HG.map(() => 0)); });
 blocks.forEach(b => {
   b.rm = b.rm || [];                    // [firm, forest, sure, source]: hand research (+ Crown-licence rule) on blocks no list named
   b.mgr = b.mg.length ? "named" : b.rm.length ? "found" : b.cfl ? "cfl" : "none";
@@ -118,7 +122,7 @@ const Stands = L.GridLayer.extend({
       const d = g.getImageData(0, 0, 256, 256), a = d.data, to = o.to().map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))), only = o.only();
       for (let p = 0; p < a.length; p += 4) {
         if (!a[p + 3]) continue;
-        const k = o.rgb.findIndex(c => Math.abs(c[0] - a[p]) + Math.abs(c[1] - a[p + 1]) + Math.abs(c[2] - a[p + 2]) < 12);
+        const k0 = o.rgb.findIndex(c => Math.abs(c[0] - a[p]) + Math.abs(c[1] - a[p + 1]) + Math.abs(c[2] - a[p + 2]) < 12), k = o.of && k0 >= 0 ? o.of[k0] : k0;
         if (k < 0 || (only && !only.has(k))) { a[p + 3] = 0; continue; }
         a[p] = to[k][0]; a[p + 1] = to[k][1]; a[p + 2] = to[k][2]; a[p + 3] = 215;
       }
@@ -137,7 +141,7 @@ const Stands = L.GridLayer.extend({
     return cv;
   }
 });
-const stands = new Stands({pane: "stands", minZoom: STAND_Z, maxZoom: 19, updateWhenZooming: false, dir: "stands", set: STAND_SET, rgb: STAND_RGB,
+const stands = new Stands({pane: "stands", minZoom: STAND_Z, maxZoom: 19, updateWhenZooming: false, dir: "stands", set: STAND_SET, rgb: STAND_RGB, of: HG_OF,
   to: () => C.hg, only: () => S.due.length ? new Set(S.due.map(Number)) : null});
 // Height view: every 80 m lidar cell coloured by tree height (height_tiles.py), the same way as the harvest patches
 const heights = new Stands({pane: "stands", minZoom: STAND_Z, maxZoom: 19, updateWhenZooming: false, dir: "heights", set: HT_SET, rgb: HT_RGB,
@@ -236,7 +240,7 @@ const FINFO = {
   kind: ["Land-cover map (LCDB v6, Manaaki Whenua, 2023/24): exotic forest and harvested land = plantation; mānuka / kānuka kept apart. Touching pieces joined; 10 ha+ only.",
     "Plantation total 1.82 million ha vs MPI's 1.82 million ha (within 0.3%). Mānuka not tested."],
   due: ["Each 30 m square: planting year from the last satellite clear-fell (53% of area), else lidar tree height (41%), else the land-cover map (5%); harvest = planting + 28 years, matched to MPI's regional age mix. Bits under 3 ha join their forest.",
-    "Back-test on lidar-dated forests the satellite then saw felled 2020-25: 93% would have shown as due by 2028 (by chance: 49%). Satellite fell years near exact (27 of 30 checked). Later periods not tested; real rotations run 25-32 years, so a forest can be one period out."],
+    "Back-test on lidar-dated forests the satellite then saw felled 2020-25: 93% would have shown as due by 2028 (by chance: 49%). Satellite fell years near exact (27 of 30 checked). Later periods tested the same way: right or one period out 97% for 2029-33 and 89% for 2034-38; beyond that too unsure, so shown as one 2039-or-later band. Forests planted about 1997: 56% felled by age 26, 75% by 28."],
   region: ["The region the forest's middle point falls in (Stats NZ boundaries).", "Exact; a forest across a boundary goes with its middle."],
   district: ["The district the forest's middle point falls in (Stats NZ boundaries).", "Exact; a forest across a boundary goes with its middle."],
   size: ["Area of the forest's land-cover outline.", "As exact as the map's outline; the map skips patches under 1 ha."],
@@ -462,7 +466,7 @@ async function pickPatch(b, ll) {
   const m = g.getImageData(0, 0, N, N).data;
   const cls = new Int8Array(N * N).fill(-2);
   const clsAt = q => { if (cls[q] === -2) cls[q] = !a[q * 4 + 3] || !m[q * 4 + 3] ? -1
-    : STAND_RGB.findIndex(c => Math.abs(c[0] - a[q * 4]) + Math.abs(c[1] - a[q * 4 + 1]) + Math.abs(c[2] - a[q * 4 + 2]) < 12); return cls[q]; };
+    : HG_OF[STAND_RGB.findIndex(c => Math.abs(c[0] - a[q * 4]) + Math.abs(c[1] - a[q * 4 + 1]) + Math.abs(c[2] - a[q * 4 + 2]) < 12)] ?? -1; return cls[q]; };
   const s0 = Math.floor(p.y - y0) * N + Math.floor(p.x - x0), k = clsAt(s0);
   if (k < 0 || (S.due.length && !S.due.includes(String(k)))) return false;   // clicked a gap or a hidden period: whole forest
   const inP = new Uint8Array(N * N), st = [s0]; inP[s0] = 1;
