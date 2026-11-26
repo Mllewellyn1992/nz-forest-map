@@ -32,7 +32,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 52;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 53;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const tileIndex = d => fetch(d + "/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -232,7 +232,8 @@ const FACETS = [
   {id: "fell", title: "Felled since 2025 (Hawke's Bay)", layer: true, note: "Map layer only. Pine cleared between the summer 2024-25 and spring 2026 satellite photos, Hawke's Bay only.",
     opts: () => [["0", FELL_T[0]], ["1", FELL_T[1]]], test: () => true},
   {id: "svcl", title: "Forestry services", layer: true, note: "Map layer only: firms that do work for forests, sorted by hand from their own descriptions. Paler dots are placed at the town, not the yard.",
-    opts: () => SVC_T.map((t, i) => [String(i), SVC.d ? `${t} (${SVC.d.f.filter(f => f[1] === i).length})` : t]), test: () => true},
+    opts: () => [...SVC_T.map((t, i) => [String(i), SVC.d ? `${t} (${SVC.d.f.filter(f => f[1] === i && (!f[7] || S.svcl.includes("g"))).length})` : t]),
+      ["g", `Also firms with no website, Google Maps only${SVC.d ? ` (${SVC.d.f.filter(f => f[7]).length})` : ""}`]], test: () => true},
 ];
 // how each filter is worked out and how sure it is (Mike 2026-11-26: "an information icon ... how it was calculated and what the
 // accuracy levels are"). Only checks actually run are quoted; "not tested" where none was.
@@ -633,24 +634,28 @@ async function syncInf() {
 // ForestMap/_scratch/services/build.py: f = [name, type, service, website, [[lat, lon], ...], town only, towns]
 const SVC = {d: null, layer: L.layerGroup()}, svcRnd = L.canvas({padding: .5, tolerance: 3});
 const SVC_T = ["Harvest crews", "Roading and earthworks", "Log cartage", "Mills and log buyers", "Nurseries", "Planting and silviculture",
-  "Spraying and pest control", "Consultants and inventory", "Forest managers", "Machinery and repairs"];
-const SVC_C = dark ? ["#e8664c", "#d9ac3a", "#5d9cf0", "#c07be0", "#8cc46a", "#4cc3b0", "#f06fb0", "#f0a050", "#e8d77a", "#a9b2bd"]
-  : ["#b23a26", "#9a6a10", "#1f5fa8", "#8e3fb0", "#4f8a2a", "#178f7d", "#c2187a", "#e0832a", "#6b5d10", "#5d6670"];
+  "Spraying and pest control", "Consultants and inventory", "Forest managers", "Machinery and repairs", "Other forestry contractors"];
+const SVC_C = dark ? ["#e8664c", "#d9ac3a", "#5d9cf0", "#c07be0", "#8cc46a", "#4cc3b0", "#f06fb0", "#f0a050", "#e8d77a", "#a9b2bd", "#d99a7c"]
+  : ["#b23a26", "#9a6a10", "#1f5fa8", "#8e3fb0", "#4f8a2a", "#178f7d", "#c2187a", "#e0832a", "#6b5d10", "#5d6670", "#8a4f35"];
+// Google-only firms (field 7 = 1, Mike 2026-11-27): no website, not in AquilaLens; shown only with the "g" tick, as rings
+const svcOn = f => S.svcl.includes(String(f[1])) && (!f[7] || S.svcl.includes("g"));
 const SVC_KM = 50;
 const svcLoad = get("services.json").then(d => { SVC.d = d; if (S.svcl.length) syncSvc(); if (openF === "svcl") drawFilters(); }).catch(() => {});
 const kmTo = (a, b) => { const r = Math.PI / 180, x = (b[1] - a[1]) * r * Math.cos((a[0] + b[0]) / 2 * r), y = (b[0] - a[0]) * r; return Math.hypot(x, y) * 6371; };
 function svcCard(f) {
   return `<div class="card"><h3>${esc(f[0])}</h3><div class="s"><i style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${SVC_C[f[1]]}"></i> ${SVC_T[f[1]]}${f[6] ? " · " + esc(f[6]) : ""}</div>
     ${f[2] ? `<div style="margin-top:4px">${esc(f[2])}</div>` : ""}${f[5] ? `<div class="s">Pin at the town centre, not the yard</div>` : ""}
-    ${f[3] ? `<div class="links"><a href="${esc(/^https?:/.test(f[3]) ? f[3] : "https://" + f[3])}" target="_blank" rel="noopener">Website</a></div>` : ""}</div>`;
+    ${f[7] ? `<div class="s">No website: found on Google Maps only, not checked against the Companies Register</div>` : ""}
+    ${f[3] ? `<div class="links"><a href="${esc(/^https?:/.test(f[3]) ? f[3] : "https://" + f[3])}" target="_blank" rel="noopener">${f[7] ? "Google Maps listing" : "Website"}</a></div>` : ""}</div>`;
 }
 let svcKey = null;
 function syncSvc() {
   if (!S.svcl.length || !SVC.d) { map.removeLayer(SVC.layer); svcKey = null; return; }
   if (svcKey !== S.svcl.join()) {
     svcKey = S.svcl.join(); SVC.layer.clearLayers();
-    SVC.d.f.filter(f => S.svcl.includes(String(f[1]))).forEach(f => f[4].forEach(ll =>
-      L.circleMarker(ll, {renderer: svcRnd, radius: f[5] ? 4 : 5.5, color: dark ? "#111" : "#fff", weight: 1.2, fillColor: SVC_C[f[1]], fillOpacity: f[5] ? .55 : .95})
+    SVC.d.f.filter(svcOn).forEach(f => f[4].forEach(ll =>
+      L.circleMarker(ll, f[7] ? {renderer: svcRnd, radius: 4.5, color: SVC_C[f[1]], weight: 2, fillColor: dark ? "#111" : "#fff", fillOpacity: .9}
+        : {renderer: svcRnd, radius: f[5] ? 4 : 5.5, color: dark ? "#111" : "#fff", weight: 1.2, fillColor: SVC_C[f[1]], fillOpacity: f[5] ? .55 : .95})
         .bindTooltip(`<b>${esc(f[0])}</b><br>${SVC_T[f[1]]}`, {direction: "top"}).bindPopup(() => svcCard(f), {maxWidth: 280}).addTo(SVC.layer)));
   }
   SVC.layer.addTo(map); drawLegend();
@@ -659,7 +664,7 @@ function syncSvc() {
 function svcNear(b) {
   if (!SVC.d) return [];
   const by = SVC_T.map(() => []);
-  SVC.d.f.forEach(f => { const k = Math.min(...f[4].map(ll => kmTo(b.c, ll))); if (k <= SVC_KM) by[f[1]].push([k, f]); });
+  SVC.d.f.forEach(f => { if (f[7] && !S.svcl.includes("g")) return; const k = Math.min(...f[4].map(ll => kmTo(b.c, ll))); if (k <= SVC_KM) by[f[1]].push([k, f]); });
   return by.map((v, t) => [t, v.sort((a, c) => a[0] - c[0])]).filter(([, v]) => v.length);
 }
 // ------------------------------------------------------------------ drive time from ports / mills (Mike 2026-11-24)
@@ -800,7 +805,8 @@ function drawLegend() {
       `<div class="k"><span class="pdot" style="background:${PLACE_C[c]}">${PLACE_SVG[c]}</span>${c === "p" ? "Export port (size = logs)" : t}</div>`).join("") : "")
     + (S.dp.some(k => k[0] === "p") ? k(AREA_C.p + "55", `Within ${S.dm} min drive of ${S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a port"}`) : "")
     + (S.dp.some(k => k[0] === "m") ? k(AREA_C.m + "55", `Within ${S.dm} min drive of ${S.dp.length === 1 ? esc(dpName(S.dp[0])) : "a mill"}`) : "")
-    + (S.svcl.length && SVC.d ? `<div class="lh" style="margin-top:4px">Forestry services (dots)</div>` + SVC_T.map((t, i) => S.svcl.includes(String(i)) ? k(SVC_C[i], t, true) : "").join("") : "")
+    + (S.svcl.length && SVC.d ? `<div class="lh" style="margin-top:4px">Forestry services (dots)</div>` + SVC_T.map((t, i) => S.svcl.includes(String(i)) ? k(SVC_C[i], t, true) : "").join("")
+      + (S.svcl.includes("g") ? `<div class="k"><i style="background:transparent;border:2px solid currentColor;border-radius:50%;box-sizing:border-box"></i>Ring = Google Maps only, no website</div>` : "") : "")
     + (S.fell.length && FELL.d ? `<div class="lh" style="margin-top:4px">Felled since 2025 (Hawke's Bay)</div>` + S.fell.map(i => k(FELL_C[i], FELL_T[i])).join("") : "")
     + (S.np && NP.d ? `<div class="lh" style="margin-top:4px">Aerial photos 2025-26 (pilot)</div>` + k(NP_C.young, NP_T.young) + k(NP_C.older, NP_T.older) + (S.npa ? `<div class="k"><i style="background:transparent;border:1.5px dashed ${NP_C.young}"></i>Area checked on the photos</div>` : "") : "");
 }
