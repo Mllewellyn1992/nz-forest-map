@@ -32,7 +32,7 @@ const NF_FILTER = {post: "Post-1989 forest land", recent: "Planted on farmland 2
 const SIZES = [["10-50 ha", 10, 50], ["50-200 ha", 50, 200], ["200-1,000 ha", 200, 1000], ["1,000-5,000 ha", 1000, 5000], ["5,000+ ha", 5000, 1e9]];
 
 // ------------------------------------------------------------------ data
-const DATA_V = 51;                       // bump with every data rebuild so browsers do not mix an old data file with new code
+const DATA_V = 52;                       // bump with every data rebuild so browsers do not mix an old data file with new code
 const get = f => fetch("data/" + f + "?v=" + DATA_V).then(r => { if (!r.ok) throw new Error(f + " " + r.status); return r.json(); });
 $("list").innerHTML = `<div class="more">Loading forests…</div>`;
 const tileIndex = d => fetch(d + "/index.json?v=" + DATA_V).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -239,13 +239,13 @@ const FACETS = [
 const FINFO = {
   kind: ["Land-cover map (LCDB v6, Manaaki Whenua, 2023/24): exotic forest and harvested land = plantation; mānuka / kānuka kept apart. Touching pieces joined; 10 ha+ only.",
     "Plantation total 1.82 million ha vs MPI's 1.82 million ha (within 0.3%). Mānuka not tested."],
-  due: ["Each 30 m square: planting year from the last satellite clear-fell (53% of area), else lidar tree height (41%), else the land-cover map (5%); harvest = planting + 28 years, matched to MPI's regional age mix. Bits under 3 ha join their forest.",
-    "Back-test on lidar-dated forests the satellite then saw felled 2020-25: 93% would have shown as due by 2028 (by chance: 49%). Satellite fell years near exact (27 of 30 checked). Later periods tested the same way: right or one period out 97% for 2029-33 and 89% for 2034-38; beyond that too unsure, so shown as one 2039-or-later band. Forests planted about 1997: 56% felled by age 26, 75% by 28."],
+  due: ["Each 30 m square: planting year from the last satellite clear-fell (66% of area), else lidar tree height (30%), else the land-cover map (4%); harvest = planting + 28 years. Squares with no fell on record are matched to MPI's regional age mix, but never shown older than their last fell or than the land-cover map allows. Bits under 3 ha join their forest.",
+    "Checked against four managers' published age tables: our share due by 2033 was 5 to 12 points out per estate (43% vs 31%, 60% vs 67%, 25% vs 31%, 30% vs 25%). Back-test on lidar-dated forests the satellite then saw felled 2020-25: 97% would have shown as due by 2028 (by chance: 56%). Satellite fell years near exact (27 of 30 checked; 97% within a year of a second satellite record at two forests). Lidar-dated squares are the weak part: right or one period out 94% for 2029-33 and 82% for 2034-38; beyond that too unsure, so shown as one 2039-or-later band. Forests planted about 1997: 56% felled by age 26, 75% by 28."],
   region: ["The region the forest's middle point falls in (Stats NZ boundaries).", "Exact; a forest across a boundary goes with its middle."],
   district: ["The district the forest's middle point falls in (Stats NZ boundaries).", "Exact; a forest across a boundary goes with its middle."],
   size: ["Area of the forest's land-cover outline.", "As exact as the map's outline; the map skips patches under 1 ha."],
   fm: ["Firms' own published forest lists, placed by forest name on LINZ place names; others found by web research (shown as not confirmed). About a third of plantation area has a manager.",
-    "Check of 50 forests (Nov 2026, two separate readers): 36 right, 2 wrong (since fixed), 12 could not be confirmed either way."],
+    "Check of 50 forests (Nov 2026, two separate readers): 36 right, 2 wrong (since fixed), 12 could not be confirmed either way. Against one owner's full published forest list (83 forests): 5 forests carried another firm's name by a place-name match (fixed) and 22 of its forests had no manager shown (added)."],
   nf: ["MfE carbon map (LUCAS 2020): land in forest since 1989, which can earn ETS units. Planted 2018-23 from the land-cover map.",
     "Government map, not re-checked. Planted 2018-23: 8 of 8 satellite checks right."],
   ht: ["LINZ lidar top height when flown (year varies by area), grown on to today with the NZ pine growth curve. Middle of the forest.",
